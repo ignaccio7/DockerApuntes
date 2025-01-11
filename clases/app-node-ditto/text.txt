@@ -1,0 +1,15 @@
+npm init -y
+npm install standard -D
+
+ahora en el package.json
+"devDependencies": {
+    "standard": "^17.1.0"
+  },
+  "eslintConfig": {
+    "extends":"standard"
+  }
+
+
+para instalar express
+es una dependencia de produccion
+npm install express -E

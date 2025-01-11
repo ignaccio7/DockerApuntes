@@ -1,0 +1,38 @@
+version: '3'
+# Siempre debemos indicar la version de docker compose que vamos a usar esto para saber o indicarle a docker que comandos puede soportar va usar etc
+
+services:
+  # Aqui iria al nombre del servicio en este caso "db"
+  db:
+    # Aqui iria el nombre como referencia para el container
+    container_name: postgres_database
+    # Aqui definimos la imagen que vamos a usar
+    image: postgres:16.3-alpine3.20
+    # Aqui los volumenes
+    volumes:
+    # El volumen que nosotros hayamos creado anteriormente vinculando con el del contenedor
+      - postgres-db:/var/lib/postgresql/data
+    environment:
+      # Aqui pondremos los valores como name=value
+      - POSTGRES_PASSWORD=123456
+
+  pgAdmin:
+    # Como sabemos que pgAdmin depende de la base de datos que tengamos arriba
+    depends_on:
+      # nombre del servicio
+      - db
+    image: dpage/pgadmin4:8.9
+    ports:
+      # Aqui como sabemos <Puerto de nuestra computadora>:<Puerto contenedor>
+      - "8083:80"
+    environment:
+      - PGADMIN_DEFAULT_PASSWORD=260298
+      - PGADMIN_DEFAULT_EMAIL=igna@gmail.com
+
+volumes:
+  # Con esto le indicamos que este compose cree el volumen en caso de no tenerlo y si lo tiene entonces lo usara
+  # PERO creara el volumen de la siguiente manera <project-name>_<service-name>_<replica-number> en este caso <nombrecarpeta>-postgres-db<aqui pondra -1 -2 depende si tenemos mas>
+  # Entonces si tenemos ya creado un volumen de nombres "postgres-db" no lo usara
+  postgres-db:
+    # Aqui le indicamos que use un volumen que tenemos creado ya. Sino ponemos el external creara un volumen
+    external: true
