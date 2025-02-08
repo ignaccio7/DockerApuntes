@@ -487,7 +487,7 @@ Y ya solo seria probar y estaran conectadas podremos entrar a la base de datos m
 
 # Bind Volumes
 
-Para este caso usaremos node descargando la imagen de docker hub [docker hub node](https://hub.docker.com/_/node).
+Para este caso usaremos **node** descargando la imagen de docker hub [docker hub node](https://hub.docker.com/_/node).
 
 Basicamente nos permite enlazar el contenedor que estamos ejecutando en docker con una aplicacion que tenemos en nuestra computadora.
 
@@ -830,7 +830,7 @@ CMD ["node", "app.js"]
 
 De esta manera solo cuando cambiemos las dependencias se ejecutara los pasos 3 y 4
 Y solo cuando cambiemos el archivo app.js se ejecutara el paso 5
-De esta manera optimizamos el tiempo de ejecucion de nuestra aplicacion.
+Asi con estos cambios optimizamos el tiempo de ejecucion de nuestra aplicacion.
 
 ## Ahora como podremos renombrar una imagen
 
@@ -1217,7 +1217,7 @@ latest: digest: sha256:e7761161c830b37376a572eb5dccf69f159be98d6cc08a2828a53ee9a
 Si nosotros observamos la imagen que acabamos de subir podemos ver que tiene una arquitectura de imagen específica.
 Asi la imagen en nuestra cuenta de [docker hub](https://hub.docker.com/r/edwardrg/cron-ticker/tags) se vera de la siguiente manera:
 
-> Nota: Por defecto construye la iamgen en una arquitectura que soporte nuestro equipo. Si fuera mac podria ser una linux/arm64 por ejemplo.
+> Nota: Por defecto construye la imagen en una arquitectura que soporte nuestro equipo. Si fuera mac podria ser una linux/arm64 por ejemplo.
 
 | Digest | OS/ARCH | Compressed size |
 | --- | --- | --- |
@@ -1472,6 +1472,216 @@ docker buildx build -t cron-ticker .
 * docker buildx start container-builder: Inicia el builder multiplaforma.
 * docker buildx use container-builder: Cambia al builder multiplaforma.
 * docker buildx build -t cron-ticker .: Construye la imagen utilizando el builder multiplaforma.
+
+> Nota: Para ver la informacion de la imagen en que plataformas se esta construyendo podemos hacer lo siguiente:
+```bash
+docker buildx imagetools inspect edwardrg/cron-ticker:gato
+```
+
+
+# MULTISTATE
+
+Multistate en docker es un concepto que nos permite crear una imagen que se pueda ejecutar en diferentes estados.
+Podria darse una analogia de crear una imagen por cada estado de una aplicacion y que esta tenga la posibilidad de comunicarse con los otros estados.
+
+Recordando teniamos el siguiente Dockerfile
+
+```bash
+# FROM node:20.18-alpine3.19
+# FROM --platform=linux/amd64 node:20.18-alpine3.19
+FROM --platform=$BUILDPLATFORM node:20.18-alpine3.19
+# /app esta version de linux viene con el directorio /app
+
+# ⬇️ | cd /app | este comando cambia el directorio de trabajo /app
+WORKDIR /app
+
+# Como copiamos el app.js y el package.json
+# COPY source destination
+# COPY app.js package.json /app/ <- esto hubieramos puesto sino colocamos WORKDIR /app
+COPY package.json ./
+
+# Como instalamos las dependencias
+RUN npm install
+
+# Copia todo lo del directorio actual al directorio de trabajo
+COPY . .
+
+# Realizar testing
+RUN npm run test
+
+# Eliminar dependencias y archivos innecesarios
+RUN rm -rf tests && rm -rf node_modules
+
+# Instalamos unicamente las dependencias de produccion
+RUN npm install --prod
+
+
+# Como ejecutamos el app.js
+# Lo podemos hacer con <node app.js> o <npm start>
+CMD ["node", "app.js"]
+``` 
+
+Ahora modificaremos el Dockerfile de la siguiente manera:
+Comenzamos:
+
+1. Primera Etapa
+```bash
+FROM node:20.18-alpine3.19 AS dependencies
+# FROM --platform=linux/amd64 node:20.18-alpine3.19
+# FROM --platform=$BUILDPLATFORM node:20.18-alpine3.19
+# /app esta version de linux viene con el directorio /app
+
+# ⬇️ | cd /app | este comando cambia el directorio de trabajo /app
+WORKDIR /app
+
+# Como copiamos el app.js y el package.json
+# COPY source destination
+# COPY app.js package.json /app/ <- esto hubieramos puesto sino colocamos WORKDIR /app
+COPY package.json ./
+
+# Como instalamos las dependencias
+RUN npm install
+``` 
+
+El *AS dependencies* nos permite crear una imagen con el nombre *dependencies* con node y linux alpine que le indicamos que contenga solo las dependencias de nuestro proyecto.
+
+2. Segunda Etapa
+3. Tercera Etapa
+4. Cuarta Etapa
+Todas estas etapas estan descritas en el Dockerfile y se puede observar la reutilizacion de etapas anteriores asi mismo la nueva imagen que se creara sera con un peso menor.
+
+```bash
+# Primera Etapa
+# Dependencias de desarrollo
+FROM node:20.18-alpine3.19 AS dependencies
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+
+
+
+
+# Segunda Etapa
+# Build y Test
+FROM node:20.18-alpine3.19 AS tester-builder
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+RUN npm run test
+# RUN npm run build <- Como no tenemos ese paso lo comentamos
+
+
+
+
+# Tercera Etapa
+# Dependencias de produccion. Almacenamos en una imagen separada dependencias solo de produccion
+FROM node:20.18-alpine3.19 AS dependencies-prod
+WORKDIR /app
+COPY package.json ./
+RUN npm install --prod
+
+
+
+# Cuarta Etapa
+# Ejecutar la app
+FROM node:20.18-alpine3.19 AS runner
+WORKDIR /app
+COPY --from=dependencies-prod /app/node_modules ./node_modules
+COPY app.js ./
+COPY tasks ./tasks
+
+
+
+# Como ejecutamos el app.js
+# Lo podemos hacer con <node app.js> o <npm start>
+CMD ["node", "app.js"]
+``` 
+
+El peso seria 
+
+|REPOSITORY             |TAG               |IMAGE ID       |CREATED       |SIZE |
+| --- | --- | --- | --- | --- |
+|edwardrg/cron-ticker   |latest            |2e050d7ad9bc   |2 days ago    |133MB |
+
+Y para subir a nuestro docker hub haremos lo siguiente y ahi podremos ver que la imagen comprimida pesa aun menos.
+
+```bash
+PS D:\ESTUDIO\PRACTICAS\DOCKER\clases\dockerfile\multistate> docker image ls
+REPOSITORY             TAG               IMAGE ID       CREATED       SIZE
+edwardrg/cron-ticker   latest            2e050d7ad9bc   2 days ago    133MB
+moby/buildkit          buildx-stable-1   a72f628fa83e   7 weeks ago   206MB
+PS D:\ESTUDIO\PRACTICAS\DOCKER\clases\dockerfile\multistate> docker image tag edwardrg/cron-ticker:latest edwardrg/cron-ticker:oso 
+PS D:\ESTUDIO\PRACTICAS\DOCKER\clases\dockerfile\multistate> docker image ls
+REPOSITORY             TAG               IMAGE ID       CREATED       SIZE
+edwardrg/cron-ticker   latest            2e050d7ad9bc   2 days ago    133MB
+edwardrg/cron-ticker   oso               2e050d7ad9bc   2 days ago    133MB
+moby/buildkit          buildx-stable-1   a72f628fa83e   7 weeks ago   206MB
+PS D:\ESTUDIO\PRACTICAS\DOCKER\clases\dockerfile\multistate> docker image push edwardrg/cron-ticker:oso
+The push refers to repository [docker.io/edwardrg/cron-ticker]
+b3f5528e69bd: Pushed
+16cc1f16b0b6: Pushed
+96c775a9c89c: Pushed
+df416bcb18b0: Layer already exists
+85547fed3bc5: Layer already exists
+66d247e9f489: Layer already exists
+fc228dab618f: Layer already exists
+ba79b2c01278: Layer already exists
+oso: digest: sha256:b8f9eccfc4c573e25bd6795d5f2c68f1c7e1524ea66e02773f5d22c832177c11 size: 1987
+``` 
+
+Aqui podremos ver que la imagen se ha subido a nuestro docker hub y que el peso es menor [link](https://hub.docker.com/repository/docker/edwardrg/cron-ticker/tags/oso/sha256:b8f9eccfc4c573e25bd6795d5f2c68f1c7e1524ea66e02773f5d22c832177c11).
+
+
+
+
+
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+```bash
+
+``` 
+
+
+
 
 
 ## APARTE
