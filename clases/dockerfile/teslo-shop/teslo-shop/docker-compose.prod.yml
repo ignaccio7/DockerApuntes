@@ -7,10 +7,7 @@ services:
       context: ./
       target: ${STAGE} # Este es el target que se va usar y lo buscara en nuestro dockerfile
       dockerfile: Dockerfile # Aqui podemos indicar el dockerfile que vamos a usar podria ser otro nombre depende de lo que queramos
-    volumes:
-      - .:/app/      
-      - /app/node_modules # Este seria el mapeo adicional que en caso que no tengamos el node modules de lado de docker lo mapearemos al nuestro
-    # command: npm run start:dev Tambien se podria ejecutar aqui el comando para correr el contenedor 
+    image: edwardrg/teslo-shop-nr  # <- Con esta linea podemos indicar el nombre de la imagen que se va construir y luego usar
     container_name: nest-app
     ports:
       - "${PORT}:${PORT}"

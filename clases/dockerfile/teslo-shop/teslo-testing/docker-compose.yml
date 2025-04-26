@@ -1,0 +1,20 @@
+
+services:
+
+  app:
+    image: edwardrg/teslo-shop-nr:1.1.0
+    container_name: nest-app
+    restart: always
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      APP_VERSION: ${APP_VERSION}
+      STAGE: ${STAGE}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USERNAME: ${DB_USERNAME}
+      PORT: ${PORT}
+      HOST_API: ${HOST_API}
+      JWT_SECRET: ${JWT_SECRET}

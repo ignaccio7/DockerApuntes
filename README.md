@@ -732,12 +732,12 @@ volumes:
 ``` 
 
 ### Cosas interesantes
-command: ['--auth'] -> Esto nos permite iniciar el contenedor con el flag de autenticacion por eso pasamos el nombre de usuario y la contraseña
-restart: always -> Esto nos permite reiniciar el contenedor si falla
-volumes: -> Esto nos permite crear un volumen para el contenedor
-environment: -> Esto nos permite pasar variables de entorno a nuestro contenedor
-ports: -> Esto nos permite mapear puertos de nuestra computadora con los del contenedor
-depends_on: -> Esto nos permite que el contenedor dependa de otro contenedor
+* command: ['--auth'] -> Esto nos permite iniciar el contenedor con el flag de autenticacion por eso pasamos el nombre de usuario y la contraseña
+* restart: always -> Esto nos permite reiniciar el contenedor si falla
+* volumes: -> Esto nos permite crear un volumen para el contenedor
+* environment: -> Esto nos permite pasar variables de entorno a nuestro contenedor
+* ports: -> Esto nos permite mapear puertos de nuestra computadora con los del contenedor
+* depends_on: -> Esto nos permite que el contenedor dependa de otro contenedor
 
 MONGODB: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_DB_NAME}:27017 -> Esto nos permite pasar la url de nuestra base de datos
 ```bash
@@ -763,7 +763,7 @@ WORKDIR /app
 # Como copiamos el app.js y el package.json
 # COPY source destination
 #COPY app.js packege.json /app/ <- esto hubieramos puesto sino colocamos WORKDIR /app
-COPY app.js packege.json ./
+COPY app.js package.json ./
 
 # Como instalamos las dependencias
 RUN npm install
@@ -809,20 +809,20 @@ FROM node:20.18-alpine3.19
 WORKDIR /app
 
 # PASO 3
-# Como copiamos el app.js y el package.json
+# Copiamos el package.json
 # COPY source destination
 # COPY app.js package.json /app/ <- esto hubieramos puesto sino colocamos WORKDIR /app
 COPY package.json ./
 
 # PASO 4
-# Como instalamos las dependencias
+# Instalamos las dependencias
 RUN npm install
 
 # PASO 5
-# Movemos aqui el copiado del archivo app.js
+# Copiamos el archivo app.js
 COPY app.js ./
 
-# Como ejecutamos el app.js
+# Ejecutamos el app.js
 # Lo podemos hacer con <node app.js> o <npm start>
 CMD ["node", "app.js"]
 
@@ -1548,6 +1548,7 @@ El *AS dependencies* nos permite crear una imagen con el nombre *dependencies* c
 2. Segunda Etapa
 3. Tercera Etapa
 4. Cuarta Etapa
+
 Todas estas etapas estan descritas en el Dockerfile y se puede observar la reutilizacion de etapas anteriores asi mismo la nueva imagen que se creara sera con un peso menor.
 
 ```bash
@@ -1631,6 +1632,767 @@ oso: digest: sha256:b8f9eccfc4c573e25bd6795d5f2c68f1c7e1524ea66e02773f5d22c83217
 
 Aqui podremos ver que la imagen se ha subido a nuestro docker hub y que el peso es menor [link](https://hub.docker.com/repository/docker/edwardrg/cron-ticker/tags/oso/sha256:b8f9eccfc4c573e25bd6795d5f2c68f1c7e1524ea66e02773f5d22c832177c11).
 
+> Nota: Como vimos en esta parte --platform=$BUILDPLATFORM usa la plataforma que nosotros mandemos por parametro pero si usamos builx no es necesario colocar eso en cada state ya que tomara lo que pongamos en el comando de ejecucion. Como puede ser: docker buildx build --platform linux/amd64,linux/arm64 -t edwardrg/cron-ticker:latest --push .
+
+# Pasando a la siguiente seccion
+Nos clonamos un proyecto de nestjs y lo vamos a ejecutar con docker
+para ello el proyecto ya tenia una configuracion en su docker compose yaml
+en la cual levantaba una base de datos de postgres y exponia el puerto 5432
+```bash
+version: '3'
+
+services:
+  
+  db:
+    image: postgres:16.3-alpine3.20
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    container_name: ${DB_NAME}
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+
+
+volumes:
+  postgres-db:
+    external: false
+``` 
+
+Nosotros en este caso integraremos la aplicacion realizada con nestjs en el mismo docker compose para que podamos usarlas con el mismo contenedor.
+
+Asi lo que nos creamos fue un archivo Dockerfile que se encarga de construir la imagen que vamos a usar.
+
+Aqui hay que notar varios puntos:
+1. Estamos usando multi stages para construir la imagen
+2. Hay que hacer enfasis en la primera parte que es un stage para dev
+3. Este stage nos servira para construir nuestra imagen en modo desarrollo
+4. Nos servira este stage ya que lo especificaremos en el docker compose que veremos mas adelante asi el docker compose solo ejecutara este stage ya que esta haciendo referencia en el target
+5. Los siguientes stages nos sirven para construir la imagen en modo produccion
+
+Dockerfile
+```bash
+
+# Que pasa si queremos un stage para desarrollo
+FROM node:19-alpine3.15 as dev
+WORKDIR /app
+# COPY package.json package.json
+COPY package.json ./
+RUN npm install --ignore-scripts --frozen-lockfile
+CMD ["npm", "run", "start:dev"]
+
+
+FROM node:19-alpine3.15 as dev-deps
+WORKDIR /app
+COPY package.json package.json
+RUN npm install --ignore-scripts --frozen-lockfile
+
+
+FROM node:19-alpine3.15 as builder
+WORKDIR /app
+COPY --from=dev-deps /app/node_modules ./node_modules
+COPY . .
+# RUN yarn test
+RUN npm run build
+
+FROM node:19-alpine3.15 as prod-deps
+WORKDIR /app
+COPY package.json package.json
+RUN npm install --prod --ignore-scripts --frozen-lockfile
+
+
+FROM node:19-alpine3.15 as prod
+EXPOSE 3000
+WORKDIR /app
+ENV APP_VERSION=${APP_VERSION}
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+
+CMD [ "node","dist/main.js"]
+``` 
+
+Docker compose
+Cosas importantes:
+1. El build es la parte que nos permitira construir la imagen
+2. el context es donde esta el directorio que contiene el dockerfile
+3. dockerfile: Dockerfile <- aqui podemos indicar el nombre del dockerfile que vamos a usar facilmente podriamos asignar otro nombre como Dockerfile.dev y luego indicarlo
+4. target: dev <- indicamos el target que vamos a usar que sera el dockerfile que usaremos para construir la imagen y como le indicamos dev usara ese stage
+5. volumes: -> /app/ <- indicamos el directorio que vamos a usar para montar la imagen
+6. Este volumen es un bind volume que nos permitira conectar el directorio que esta en nuestro ordenador con el del contenedor
+7. Las variables de entorno que estamos definiendo en el docker compose nos serviran para pasar variables de entorno a nuestra imagen
+
+```bash
+version: '3'
+
+
+services:
+
+  app:
+  
+    build:
+      context: ./
+      target: dev # Este es el target que se va usar y lo buscara en nuestro dockerfile
+      dockerfile: Dockerfile # Aqui podemos indicar el dockerfile que vamos a usar podria ser otro nombre depende de lo que queramos
+    volumes:
+      - ./:/app/      
+      - /app/node_modules # Este seria el mapeo adicional que en caso que no tengamos el node modules de lado de docker lo mapearemos al nuestro
+      # Este app/node_modules es basicamente un volumen anonimo que mapea el directorio que esta en nuestro ordenador con el del contenedor
+      # En este caso, el directorio /app/node_modules dentro del contenedor no se mapea a ningún directorio específico del host; simplemente se crea un volumen temporal que persiste los datos de ese directorio mientras el contenedor está activo.
+    container_name: nest-app
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      APP_VERSION: ${APP_VERSION}
+      STAGE: ${STAGE}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USERNAME: ${DB_USERNAME}
+      PORT: ${PORT}
+      HOST_API: ${HOST_API}
+      JWT_SECRET: ${JWT_SECRET}
+  
+  db:
+    image: postgres:16.3-alpine3.20
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    container_name: ${DB_NAME}
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+
+
+volumes:
+  postgres-db:
+    external: false
+``` 
+
+Como ejecutamos este docker compose?
+
+1. Primero tenemos que construir la imagen que especifica del target dev
+```bash
+  docker compose build
+``` 
+2. Luego ejecutamos el contenedor
+```bash
+  docker compose up
+``` 
+Sorpresa sorpresa la imagen esta fallando XD
+```bash
+nest-app  | [11:29:05 PM] Found 0 errors. Watching for file changes.
+nest-app  |
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [NestFactory] Starting Nest application...
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] AppModule dependencies initialized +58ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] TypeOrmModule dependencies initialized +0ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] PassportModule dependencies initialized +0ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] CommonModule dependencies initialized +1ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] ConfigHostModule dependencies initialized +0ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] ServeStaticModule dependencies initialized +1ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] ConfigModule dependencies initialized +0ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] ConfigModule dependencies initialized +0ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] FilesModule dependencies initialized +1ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] FilesModule dependencies initialized +1ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] JwtModule dependencies initinest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM     LOG [InstanceLoader] JwtModule dependencies initialized +0ms
+alized +0ms
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:06 PM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (1)...
+nest-app  | Error: connect ECONNREFUSED ::1:5432
+nest-app  | Error: connect ECONNREFUSED ::1:5432
+nest-app  |     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1283:16)
+nest-app  |     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1283:16)
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:09 PM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (2)...
+nest-app  | Error: connect ECONNREFUSED ::1:5432
+nest-app  | Error: connect ECONNREFUSED ::1:5432
+nest-app  |     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1283:16)
+nest-app  |     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1283:16)
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:12 PM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (3)...
+nest-app  | Error: connect ECONNREFUSED ::1:5432
+nest-app  |     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1283:16)
+nest-app  | [Nest] 29  - 04/07/2025, 11:29:15 PM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (4)...
+Gracefully stopping... (press Ctrl+C again to force)
+``` 
+
+Podemos ver que si creo los modulos de node y que nuestra aplicacion esta corriendo entonces cual fue el error?
+Resulta que por los logs vemos que no se pudo conectar con la base de datos y si vemos en las variables de entorno lo que teniamos era:
+
+```bash
+
+APP_VERSION=1.0.1
+
+
+STAGE=dev
+
+DB_PASSWORD=MySecr3tPassWord@as2
+DB_NAME=TesloDB
+DB_HOST=localhost <- Esta linea es la que causa conflicto ya que no nos deberiamos estar conectando a localhost sino al host que esta definido en el contenedor
+DB_PORT=5432
+DB_USERNAME=postgres
+
+PORT=3000
+HOST_API=http://localhost:3000/api
+
+JWT_SECRET=Est3EsMISE3Dsecreto32scle
+
+ya que si vemos en nuestro yaml esta linea esta usando
+container_name: ${DB_NAME} la variable de entorno por lo cual
+
+localhost -> se volvera -> TesloDB -> y sorpresa la aplicacion correra
+``` 
+
+Si ingresamos a esta [url](http://localhost:3000/api/#/) ya podremos ver nuestra api funcionando.
+
+
+Si nosotros quisieramos hacer que solo cambiando la variable de entorno de **STAGE=dev** a **STAGE=prod** y automaticamente que se ejecute los stages de produccion tendriamos que modificar nuestros archivo de la siguiente manera:
+Creamos un nuevo archivo llamado **docker-compose.prod.yml** y lo copiamos de la siguiente manera: 
+1. Eliminamos el contenido del bind volume que teniamos para levantarlo en dev
+2. Agregamos el target para que obtenga la variable de entorno en caso de ser prod
+EL DOCKER YAML SERIA:
+
+```bash
+services:
+
+  app:
+  
+    build:
+      context: ./
+      target: ${STAGE} # Este es el target que se va usar y lo buscara en nuestro dockerfile
+      dockerfile: Dockerfile # Aqui podemos indicar el dockerfile que vamos a usar podria ser otro nombre depende de lo que queramos
+    container_name: nest-app
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      APP_VERSION: ${APP_VERSION}
+      STAGE: ${STAGE}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USERNAME: ${DB_USERNAME}
+      PORT: ${PORT}
+      HOST_API: ${HOST_API}
+      JWT_SECRET: ${JWT_SECRET}
+  
+  db:
+    image: postgres:16.3-alpine3.20
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    container_name: ${DB_NAME}
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+
+
+volumes:
+  postgres-db:
+    external: false
+``` 
+Y posterior a eso para ejecutar este archivo lo haremos con el siguiente comando
+
+```bash
+# Para construir la imagen del dockerfile
+docker compose -f docker-compose.prod.yml build
+# Para levantar la imagen con el docker yaml en un contenedor
+docker compose -f docker-compose.prod.yml up
+
+``` 
+
+Agregamos esta linea mas en el docker compose para que el servicio app se cree con la imagen que nosotros le indicamos
+```bash	
+ app:  
+    build:
+      ...
+    image: edwardrg/teslo-shop-backend  # <- Con esta linea podemos indicar el nombre de la imagen que se va construir y luego usar
+```
+
+
+> Nota: Siempre deberiamos ejecutar primero el build para que el dockerfile se compile y luego el up para levantar el contenedor
+
+Ahora si listamos las imagenes veremos el tag latest
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\dockerfile\teslo-shop\teslo-shop> docker image ls
+REPOSITORY                    TAG               IMAGE ID       CREATED         SIZE
+teslo-shop-app                latest            a4c1c6841478   3 days ago      1.03GB
+edwardrg/teslo-shop-backend   latest            ebc9be8ee883   3 days ago      1.03GB
+postgres                      16.3-alpine3.20   36ed71227ae3   10 months ago   351MB
+``` 
+
+> NOTA: Algo importante En nuestro docker compose yaml tenemos 2 servicios por lo que si nosotros sabemos que para lo que necesitamos el **build** es solamente para nuestra app que es en la que le estamos mandando el contexto el target y demas cosas entonces lo que tendriamos que ejecutar es 
+
+```bash
+docker compose -f docker-compose.prod.yml build app <- Asi sera un build especifico del servicio que queremos construir
+``` 
+
+# REGISTROS Y DESPLIEGUES
+
+Para ello lo primero que haremos es subir nuestra imagen a docker hub eso lo haremos con los siguientes pasos
+Sino tenemos el contexto lo creamos y utilizamos con el siguiente comando
+```bash
+docker buildx create `
+>>   --name container-builder `
+>>   --driver docker-container `
+>>   --bootstrap --use
+``` 
+Ahora para subir la imagen
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t edwardrg/teslo-shop-nr:1.0.0 --push .
+``` 
+
+Y ahi veremos los siguientes logs
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\dockerfile\teslo-shop\teslo-shop> docker buildx build --platform linux/amd64,linux/arm64 -t edwardrg/teslo-shop-nr:1.0.0 --push .
+[+] Building 41.9s (28/28) FINISHED                                                                                                                        docker-container:container-builder
+ => [internal] load build definition from Dockerfile                                                                                                                                     0.0s
+ => => transferring dockerfile: 875B                                                                                                                                                     0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 3)                                                                                                           0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 11)                                                                                                          0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 17)                                                                                                          0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 24)                                                                                                          0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 30)                                                                                                          0.0s
+ => [linux/arm64 internal] load metadata for docker.io/library/node:19-alpine3.15                                                                                                        1.2s
+ => [linux/amd64 internal] load metadata for docker.io/library/node:19-alpine3.15                                                                                                        1.2s
+ => [auth] library/node:pull token for registry-1.docker.io                                                                                                                              0.0s
+ => [internal] load .dockerignore                                                                                                                                                        0.0s
+ => => transferring context: 118B                                                                                                                                                        0.0s
+ => [linux/amd64 dev-deps 1/4] FROM docker.io/library/node:19-alpine3.15@sha256:12d9c7253f232bb88a9ef6d6e974afd90e296cb8383572dbb7f28c39f828b07e                                         0.0s
+ => => resolve docker.io/library/node:19-alpine3.15@sha256:12d9c7253f232bb88a9ef6d6e974afd90e296cb8383572dbb7f28c39f828b07e                                                              0.0s
+ => [internal] load build context                                                                                                                                                        0.0s
+ => => transferring context: 18.41kB                                                                                                                                                     0.0s
+ => [linux/arm64 dev-deps 1/4] FROM docker.io/library/node:19-alpine3.15@sha256:12d9c7253f232bb88a9ef6d6e974afd90e296cb8383572dbb7f28c39f828b07e                                         0.0s
+ => => resolve docker.io/library/node:19-alpine3.15@sha256:12d9c7253f232bb88a9ef6d6e974afd90e296cb8383572dbb7f28c39f828b07e                                                              0.0s
+ => CACHED [linux/arm64 dev-deps 2/4] WORKDIR /app                                                                                                                                       0.0s
+ => CACHED [linux/arm64 dev-deps 3/4] COPY package.json package.json                                                                                                                     0.0s
+ => CACHED [linux/arm64 prod-deps 4/4] RUN npm install --prod --ignore-scripts --frozen-lockfile                                                                                         0.0s
+ => CACHED [linux/arm64 prod 3/4] COPY --from=prod-deps /app/node_modules ./node_modules                                                                                                 0.0s
+ => CACHED [linux/arm64 dev-deps 4/4] RUN npm install --ignore-scripts --frozen-lockfile                                                                                                 0.0s
+ => CACHED [linux/arm64 builder 3/5] COPY --from=dev-deps /app/node_modules ./node_modules                                                                                               0.0s
+ => CACHED [linux/arm64 builder 4/5] COPY . .                                                                                                                                            0.0s
+ => CACHED [linux/arm64 builder 5/5] RUN npm run build                                                                                                                                   0.0s
+ => CACHED [linux/arm64 prod 4/4] COPY --from=builder /app/dist ./dist                                                                                                                   0.0s
+ => CACHED [linux/amd64 dev-deps 2/4] WORKDIR /app                                                                                                                                       0.0s
+ => CACHED [linux/amd64 dev-deps 3/4] COPY package.json package.json                                                                                                                     0.0s
+ => CACHED [linux/amd64 prod-deps 4/4] RUN npm install --prod --ignore-scripts --frozen-lockfile                                                                                         0.0s
+ => CACHED [linux/amd64 prod 3/4] COPY --from=prod-deps /app/node_modules ./node_modules                                                                                                 0.0s
+ => CACHED [linux/amd64 dev-deps 4/4] RUN npm install --ignore-scripts --frozen-lockfile                                                                                                 0.0s
+ => CACHED [linux/amd64 builder 3/5] COPY --from=dev-deps /app/node_modules ./node_modules                                                                                               0.0s
+ => CACHED [linux/amd64 builder 4/5] COPY . .                                                                                                                                            0.0s
+ => CACHED [linux/amd64 builder 5/5] RUN npm run build                                                                                                                                   0.0s
+ => CACHED [linux/amd64 prod 4/4] COPY --from=builder /app/dist ./dist                                                                                                                   0.0s
+ => exporting to image                                                                                                                                                                  41.1s
+ => => exporting layers                                                                                                                                                                  0.0s
+ => => exporting manifest sha256:4152db81f0fb21b10d070225b146c59fcf6b26b7e981e4a8d58476fd596be39a                                                                                        0.0s
+ => => exporting config sha256:63e5dcf23802618c3376649d1945c530811933afc426a7169336b14971c49b32                                                                                          0.0s
+ => => exporting attestation manifest sha256:d03ec2b44f2112c8b8c943c68058421c95e305892fe048284115cc846301e112                                                                            0.0s
+ => => exporting manifest sha256:8010bab43bdef64f0a7d3d0c50db89e86b3e693f78e385766e952f930ac7919f                                                                                        0.0s
+ => => exporting config sha256:eb75d0824a6df2a984c6860c60d5e89eead78000b67b02e464427189dfc2b286                                                                                          0.0s
+ => => exporting attestation manifest sha256:85be139c0318f3d7c9436cb635111df7457a07381c84a6afce8c0f0ef167e514                                                                            0.0s
+ => => exporting manifest list sha256:b283b22059e5c409e90832250e306b4e0270f3183d757fa9a8b682b870a1a177                                                                                   0.0s
+ => => pushing layers                                                                                                                                                                   37.6s
+ => => pushing manifest for docker.io/edwardrg/teslo-shop-nr:1.0.0@sha256:b283b22059e5c409e90832250e306b4e0270f3183d757fa9a8b682b870a1a177                                               3.5s
+ => [auth] edwardrg/teslo-shop-nr:pull,push token for registry-1.docker.io                                                                                                               0.0s
+
+View build details: docker-desktop://dashboard/build/container-builder/container-builder0/xhl0e95rsk9m48oje9glqwxqz
+
+ 6 warnings found (use docker --debug to expand):
+ - UndefinedVar: Usage of undefined variable '$APP_VERSION' (line 33)
+``` 
+
+Hay que hacer enfasis en 2 puntos
+1. Se estan construyendo los stages **dev-deps, builder, prod-deps, prod** y no el stage de **dev**
+
+Esto sucede porque al hacer el build de la imagen por defecto docker como tenemos multiples stages contruye solo el ultimo y como el ultimo tiene dependencias de los anteriores entonces por eso contruye todos los anteriores excepto el **dev**
+
+2. En esta parte **UndefinedVar: Usage of undefined variable '$APP_VERSION' (line 33)** esto es porque no estamos pasando la variable de entorno APP_VERSION a nuestra imagen
+
+Para solucionar esto debemos modificar el dockerfile para que reciba mediante argumento la variable y luego tambien cambiaria el comando de la siguiente manera
+
+```bash
+# El ultimo stage del dockerfile 
+FROM node:19-alpine3.15 as prod
+ARG APP_VERSION # <- Aqui esta la variable que recibe la variable de entorno APP_VERSION
+EXPOSE 3000
+WORKDIR /app
+ENV APP_VERSION=${APP_VERSION}
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+
+CMD [ "node","dist/main.js"]
+
+# Y luego para construir la imagen y subirla
+docker buildx build --build-arg APP_VERSION=1.0.0  --platform linux/amd64,linux/arm64 -t edwardrg/teslo-shop-nr:latest --push .
+``` 
+
+Y ya la podremos verificar en el siguiente [enlace](https://hub.docker.com/repository/docker/edwardrg/teslo-shop-nr/general) ya que subimos 2 tags **latest** y **1.0.0**
+
+
+## Prueba de nuestra imagen creada 
+
+Primeramente purgaremos las imagenes que tenemos en nuestra maquina actualmente
+
+```bash
+docker image prune -a
+
+``` 
+
+En nuestro docker compose yaml que teniamos antes modificaremos
+De esta:
+```bash
+services:
+
+  app:
+  
+    build:
+      context: ./
+      target: ${STAGE} # Este es el target que se va usar y lo buscara en nuestro dockerfile
+      dockerfile: Dockerfile # Aqui podemos indicar el dockerfile que vamos a usar podria ser otro nombre depende de lo que queramos
+    volumes:
+      - .:/app/      
+      - /app/node_modules # Este seria el mapeo adicional que en caso que no tengamos el node modules de lado de docker lo mapearemos al nuestro
+    # command: npm run start:dev Tambien se podria ejecutar aqui el comando para correr el contenedor 
+    container_name: nest-app
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      APP_VERSION: ${APP_VERSION}
+      STAGE: ${STAGE}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USERNAME: ${DB_USERNAME}
+      PORT: ${PORT}
+      HOST_API: ${HOST_API}
+      JWT_SECRET: ${JWT_SECRET}
+  
+  db:
+    image: postgres:16.3-alpine3.20
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    container_name: ${DB_NAME}
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+
+
+volumes:
+  postgres-db:
+    external: false
+``` 
+A esta:
+```bash
+services:
+
+  app:
+    image: edwardrg/teslo-shop-nr:1.0.0
+    container_name: nest-app
+    depends_on:
+      - db
+    restart: always
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      APP_VERSION: ${APP_VERSION}
+      STAGE: ${STAGE}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USERNAME: ${DB_USERNAME}
+      PORT: ${PORT}
+      HOST_API: ${HOST_API}
+      JWT_SECRET: ${JWT_SECRET}
+  
+  db:
+    image: postgres:16.3-alpine3.20
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    container_name: ${DB_NAME}
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+
+volumes:
+  postgres-db:
+    external: false
+``` 
+
+Y si luego ejecutamos 
+```bash
+docker compose up
+``` 
+
+Podremos ver que la imagen se ha construido correctamente e hizo la coneccion con la base de datos y podemos ver la app corriendo en el [puerto 3000](http://localhost:3000) de nuestra maquina
+
+# Prueba de nuestra imagen con una base de datos en **LINEA**
+
+Para esto haremos uso de la pagina **[render.com](https://dashboard.render.com/)** que nos da la posibilidad de crear una base de datos en linea pero solo por 1 dia luego de crearla la instancia de la base de datos se pierde si esque no pagamos un plan. 
+
+> Nota: Esto no es malo ya que como es practica solo probaremos y luego si queremos volver a intentar sera cosa de crear una instancia y cambiar las credenciales en el archivo *.env*
+
+Asi luego de crear nuestra instancia de base de datos postgres y cambiando el archivo *.env* quedara de esta forma:
+
+**.env**
+El que teniamos antes:
+```bash
+APP_VERSION=1.0.1
+
+
+STAGE=testing
+
+DB_PASSWORD=MySecr3tPassWord@as2
+DB_NAME=TesloDB
+DB_HOST=TesloDB
+DB_PORT=5432
+DB_USERNAME=postgres
+
+PORT=3000
+HOST_API=http://localhost:3000/api
+
+JWT_SECRET=Est3EsMISE3Dsecreto32scle
+``` 
+El nuevo con las nuevas credenciales
+```bash
+APP_VERSION=1.0.1
+
+
+STAGE=prod
+
+DB_PASSWORD=C8FMhaVbuv1w7zLuGxxY9hGs6a8FczML
+DB_NAME=teslodb_yabk
+DB_HOST=dpg-d00pvfi4d50c73ciq6r0-a.virginia-postgres.render.com
+DB_PORT=5432
+DB_USERNAME=teslodb_yabk_user
+
+PORT=3000
+HOST_API=http://localhost:3000/api
+
+JWT_SECRET=Est3EsMISE3Dsecreto32scle
+``` 
+
+Y como en nuestro archivo **docker-compose.yaml** ya no necesitamos el servicio de base de datos que teniamos antes lo procedemos a remover. Asi de esta forma quedara asi:
+
+Y corremos nuestro yaml nuevamente para probar.
+
+```bash
+services:
+
+  app:
+    image: edwardrg/teslo-shop-nr:1.0.0
+    container_name: nest-app
+    restart: always
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      APP_VERSION: ${APP_VERSION}
+      STAGE: ${STAGE}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USERNAME: ${DB_USERNAME}
+      PORT: ${PORT}
+      HOST_API: ${HOST_API}
+      JWT_SECRET: ${JWT_SECRET}
+``` 
+Pero **OJO** tendremos los siguientes errores:
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\dockerfile\teslo-shop\teslo-testing> docker compose up --build
+[+] Running 1/1
+ ✔ Container nest-app  Recreated                                                                                                                                                                                         0.1s 
+Attaching to nest-app
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [NestFactory] Starting Nest application...
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] AppModule dependencies initialized +68ms
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] TypeOrmModule dependencies initialized +0ms
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] PassportModule dependencies initialized +0ms                                                                                                          
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] CommonModule dependencies initialized +0ms                                                                                                            
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] ConfigHostModule dependencies initialized +2ms
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] ServeStaticModule dependencies initialized +1ms                                                                                                       
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] ConfigModule dependencies initialized +1ms                                                                                                            
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] ConfigModule dependencies initialized +0ms                                                                                                            
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] FilesModule dependencies initialized +1ms
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM     LOG [InstanceLoader] JwtModule dependencies initialized +0ms                                                                                                               
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:11 AM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (1)...                                                                                                     
+nest-app  | Error: getaddrinfo ENOTFOUND postgresql://teslodb_yabk_user:C8FMhaVbuv1w7zLuGxxY9hGs6a8FczML@dpg-d00pvfi4d50c73ciq6r0-a.virginia-postgres.render.com/teslodb_yabk                                                 
+nest-app  |     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:107:26)                                                                                                                                              
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:14 AM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (2)...
+nest-app  | Error: getaddrinfo ENOTFOUND postgresql://teslodb_yabk_user:C8FMhaVbuv1w7zLuGxxY9hGs6a8FczML@dpg-d00pvfi4d50c73ciq6r0-a.virginia-postgres.render.com/teslodb_yabk
+nest-app  |     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:107:26)                                                                                                                                              
+nest-app  | [Nest] 1  - 04/18/2025, 2:05:17 AM   ERROR [TypeOrmModule] Unable to connect to the database. Retrying (3)...                                                                                                     
+nest-app  | Error: getaddrinfo ENOTFOUND postgresql://teslodb_yabk_user:C8FMhaVbuv1w7zLuGxxY9hGs6a8FczML@dpg-d00pvfi4d50c73ciq6r0-a.virginia-postgres.render.com/teslodb_yabk
+nest-app  |     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:107:26)   
+``` 
+
+Esto es a causa de que nuestro archivo **app.module.ts** no esta corriendo con una configuracion de SSL por lo que esto nos impide contectarnos a la base de datos.
+En este momento lo tenemos de esta forma:
+```javascript
+import { join } from 'path';
+
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ServeStaticModule } from '@nestjs/serve-static';
+
+import { ProductsModule } from './products/products.module';
+import { CommonModule } from './common/common.module';
+import { SeedModule } from './seed/seed.module';
+import { FilesModule } from './files/files.module';
+import { AuthModule } from './auth/auth.module';
+import { MessagesWsModule } from './messages-ws/messages-ws.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot(),
+
+    TypeOrmModule.forRoot({
+      // ssl: process.env.STAGE === 'prod',
+      // extra: {
+      //   ssl: process.env.STAGE === 'prod'
+      //         ? { rejectUnauthorized: false }
+      //         : null,
+      // },
+      type: 'postgres',
+      host: process.env.DB_HOST,
+      port: +process.env.DB_PORT,
+      database: process.env.DB_NAME,
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      autoLoadEntities: true,
+      synchronize: true,
+    }),
+
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'),
+    }),
+
+    ProductsModule,
+
+    CommonModule,
+
+    SeedModule,
+
+    FilesModule,
+
+    AuthModule,
+
+    MessagesWsModule,
+  ],
+})
+export class AppModule {}
+``` 
+
+LO que haremos es modificar el archivo **app.module.ts** para que lo use el **ssl** y lograr conectarnos con la base de datos en render.com
+
+```bash
+import { join } from 'path';
+
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ServeStaticModule } from '@nestjs/serve-static';
+
+import { ProductsModule } from './products/products.module';
+import { CommonModule } from './common/common.module';
+import { SeedModule } from './seed/seed.module';
+import { FilesModule } from './files/files.module';
+import { AuthModule } from './auth/auth.module';
+import { MessagesWsModule } from './messages-ws/messages-ws.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot(),
+
+    TypeOrmModule.forRoot({
+      ssl: process.env.STAGE === 'prod',
+      extra: {
+        ssl:
+          process.env.STAGE === 'prod' ? { rejectUnauthorized: false } : null,
+      },
+      type: 'postgres',
+      host: process.env.DB_HOST,
+      port: +process.env.DB_PORT,
+      database: process.env.DB_NAME,
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      autoLoadEntities: true,
+      synchronize: true,
+    }),
+
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'),
+    }),
+
+    ProductsModule,
+
+    CommonModule,
+
+    SeedModule,
+
+    FilesModule,
+
+    AuthModule,
+
+    MessagesWsModule,
+  ],
+})
+export class AppModule {}
+
+``` 
+
+Luego volveremos a generar la imagen y subirla a docker hub con el siguiente comando
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t edwardrg/teslo-shop-nr:1.1.0 --push .
+``` 
+
+Y ya luego utilizaremos esta imagen en nuestro docker compose y veremos que si tenemos conexion
+
+Este seria el archivo **docker-compose.yml**
+```bash
+APP_VERSION=1.1.0
+
+
+STAGE=prod
+
+DB_PASSWORD=C8FMhaVbuv1w7zLuGxxY9hGs6a8FczML
+DB_NAME=teslodb_yabk
+DB_HOST=dpg-d00pvfi4d50c73ciq6r0-a.virginia-postgres.render.com
+DB_PORT=5432
+DB_USERNAME=teslodb_yabk_user
+
+PORT=3000
+HOST_API=http://localhost:3000/api
+
+JWT_SECRET=Est3EsMISE3Dsecreto32scle
+``` 
+
+En nuestra consola
+
+```bash
+nest-app  | [Nest] 1  - 04/20/2025, 12:03:57 AM     LOG [RoutesResolver] FilesController {/api/files}: +0ms
+nest-app  | [Nest] 1  - 04/20/2025, 12:03:57 AM     LOG [RouterExplorer] Mapped {/api/files/product/:imageName, GET} route +0ms
+nest-app  | [Nest] 1  - 04/20/2025, 12:03:57 AM     LOG [RouterExplorer] Mapped {/api/files/product, POST} route +0ms
+nest-app  | [Nest] 1  - 04/20/2025, 12:03:57 AM     LOG [NestApplication] Nest application successfully started +4ms
+nest-app  | [Nest] 1  - 04/20/2025, 12:03:57 AM     LOG [Bootstrap] App running on port 3000
+``` 
+
+# Construccion automatica - Github Actions
+
+Para ello usaremos el mismo proyecto de teslo-shop que usamos en el ejercicio anterior y lo que haremos es hacer un commit a la rama **main** y github disparara el pipeline para construir y desplegar la imagen y si se puede lo que haremos es controlar el versionamiento automatico de la imagen.
 
 
 
@@ -1638,12 +2400,7 @@ Aqui podremos ver que la imagen se ha subido a nuestro docker hub y que el peso 
 ```bash
 
 ``` 
-```bash
 
-``` 
-```bash
-
-``` 
 ```bash
 
 ``` 
@@ -1651,15 +2408,7 @@ Aqui podremos ver que la imagen se ha subido a nuestro docker hub y que el peso 
 ```bash
 
 ``` 
-```bash
 
-``` 
-```bash
-
-``` 
-```bash
-
-``` 
 ```bash
 
 ``` 
@@ -1667,18 +2416,8 @@ Aqui podremos ver que la imagen se ha subido a nuestro docker hub y que el peso 
 ```bash
 
 ``` 
-```bash
 
-``` 
-```bash
 
-``` 
-```bash
-
-``` 
-```bash
-
-``` 
 
 
 
