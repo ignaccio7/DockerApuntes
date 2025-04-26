@@ -1,0 +1,3 @@
+[submodule "clases/docker-teslo-gh-actions"]
+	path = clases/docker-teslo-gh-actions
+	url = git@github.com:ignaccio7/docker-teslo-gh-actions.git
