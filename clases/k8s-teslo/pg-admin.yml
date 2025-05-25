@@ -1,0 +1,49 @@
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: pg-admin-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: pg-admin # <- Etiquetas que nos ayudaran a identificar (como podria ser el caso de service se vincula con esto en el selector)
+spec:
+  replicas: 1 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: pg-admin # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: pg-admin # <- etiquetas
+    spec:
+      containers:
+      - name: pg-admin # <- Nombre del  # <- Imagen que se usara
+        image: dpage/pgadmin4:8.9 # <- Imagen que se usara
+        ports:
+        - containerPort: 80  # <- Puerto que se usara
+        env:
+        - name: PGADMIN_DEFAULT_EMAIL # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: pg-admin-secrets # <- Nombre del secreto
+              key: PGADMIN_DEFAULT_EMAIL # <- Nombre de la variable en el secreto
+        - name: PGADMIN_DEFAULT_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: pg-admin-secrets # <- Nombre del secreto
+              key: PGADMIN_DEFAULT_PASSWORD # <- Nombre de la variable en el secreto
+        - name: PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION # Esto por temas de configuracion
+          value: "False"
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-admin-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  type: NodePort # <- Este nodeport nos servira para la comunicacion externa para exponer el pgadmin y verlo en nuesta maquina
+  selector:
+    app: pg-admin # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 80 # <- Cualquier puerto que queremos comunicar dentro del cluster
+      targetPort: 80 # <- Puerto del contenedor en el pod
+      nodePort: 30200 # Puerto que expondra a nuestro equipo

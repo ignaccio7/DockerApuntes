@@ -1,0 +1,40 @@
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: postgres-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: postgres # <- Etiquetas que nos ayudaran a identificar
+spec:
+  replicas: 1 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: postgres # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: postgres # <- etiquetas
+    spec:
+      containers:
+      - name: postgres # <- Nombre del  # <- Imagen que se usara
+        image: postgres:16.3-alpine3.20 # <- Imagen que se usara
+        ports:
+        - containerPort: 5432  # <- Puerto que se usara
+        env:
+        - name: POSTGRES_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_PASSWORD # <- Nombre de la variable en el secreto
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  selector:
+    app: postgres # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 5432 # <- Cualquier puerto que queremos comunicar 
+      targetPort: 5432 # <- Puerto del contenedor

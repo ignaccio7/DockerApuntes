@@ -1,0 +1,8 @@
+apiVersion: v1 # <- Version de kubernetes
+kind: ConfigMap # <- Tipo de objeto
+metadata:
+  name: postgres-config # <- Nombre del configmap para los key value pairs
+data:
+  DB_NAME: postgres # <- Nombre de la base de datos
+  DB_HOST: postgres-service # <- Este seria el nombre del servidor donde esta la base de datos
+  DB_PORT: "5432" # <- Puerto de la base de datos

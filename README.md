@@ -2394,30 +2394,1718 @@ nest-app  | [Nest] 1  - 04/20/2025, 12:03:57 AM     LOG [Bootstrap] App runnin
 
 Para ello usaremos el mismo proyecto de teslo-shop que usamos en el ejercicio anterior y lo que haremos es hacer un commit a la rama **main** y github disparara el pipeline para construir y desplegar la imagen y si se puede lo que haremos es controlar el versionamiento automatico de la imagen.
 
+La url del repositorio que usaremos para crear las acciones sera el siguiente:
+[docker-teslo-gh-actions](https://github.com/ignaccio7/docker-teslo-gh-actions) 
 
+Basicamente si el proceso que nosotros hacemos para construir la imagen lo podriamos implementar en un *pipeline*.
+
+Un repositorio en github puede ser privado o publico. En este caso usaremos un repo publico pero como nosotros necesitamos credenciales que puedan ser de produccion o de desarrollo debemos tener la seguridad de no publicar credenciales privadas para el equipo de trabajo. Para ello en github tenemos una seccion de **settings/secrets** donde tenemos para *actions* y ahi podemos crear variables ocultas para nuestro equipo de trabajo y que solo github sepa.
+
+Basicamente necesitaremos variables como ser:
+
+Desde docker hub sacaremos lo siguiente y crearemos variables de secreto para el repositorio **Repository secrets**
+1. El nombre de usuario de la organizacion o del propietario del repositorio. esto lo guardaremos como una variable -> esta de nombre **DOCKER_USER**
+2. Tambien necesitaremos un password pero para ello crearemos un token de acceso desde docker hub en el siguiente [enlace](https://app.docker.com/settings/personal-access-tokens/create) y guardaremos la variable de nombre **DOCKER_PASSWORD** 
+
+Para esto de las github actions usaremos un workflow preconfigurado que nos permite crear un pipeline con docker ya instalado que si nosotros buscamos **docker image** en las actions de [github](https://github.com/ignaccio7/docker-teslo-gh-actions/actions/new?category=none&query=docker+image) podremos ver una imagen *Docker image* que es la que usaremos y si le damos click en *configure* veremos el siguiente contenido.
+
+```yaml
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build the Docker image
+      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+``` 
+
+En el cual podemos ver que estamos usando una imagen de ubuntu y lo primero que hacemos es clonar nuestro repositorio y luego construir la imagen con el tag que nosotros le indiquemos. Este workflow se encuentra en la carpeta **.github/workflows/<name>.yml** si nosotros comiteamos la imagen predeterminada que estamos usando automaticamente nos creara este workflow y si hacemos este paso como no funcionara a la primera ya que no estamos pasando los valores que requiere fallara por lo cual cancelamos el workflow desde github.
+
+Ya comenzando con nuestro workflow lo primero que podemos probar es clonar nuestro repositorio que ya lo teniamos antes pero adicional a eso como ya tenemos nuestro access token entonces procedemos a hacer login con docker hub y ver en el pipeline de github la salida que el workflow habra sido exitoso.
+
+```bash
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository - tomar codigo del repositorio
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Docker login
+      env:
+        DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      run: |
+        echo "Iniciando login el docker hub"
+        docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+        echo "Fin del login"
+    # - name: Build the Docker image
+    #   run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+``` 
+
+Como podemos construir nuestra imagen con ayuda de github actions y automaticamente luego de hacer un push a nuestro repositorio se subira a nuestro registro de docker hub con el nombre **edwardrg/teslo-shop-gh-actions** y podemos ver en el siguiente [enlace](https://hub.docker.com/repository/docker/edwardrg/teslo-shop-gh-actions/general)
+
+```bash
+name: Docker Image CI
+
+on:
+  push:
+    branches: ['master']
+  pull_request:
+    branches: ['master']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository - tomar codigo del repositorio
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Docker login
+      env:
+        DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      run: |
+        echo "Login el docker hub"
+        docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+    - name: Build Docker image
+      run: |
+        docker build -t edwardrg/teslo-shop-gh-actions:0.0.1 .
+        docker build -t edwardrg/teslo-shop-gh-actions:latest .
+    - name: Push Docker image
+      run: |
+        docker push edwardrg/teslo-shop-gh-actions:0.0.1
+        docker push edwardrg/teslo-shop-gh-actions:latest
+    # - name: Build the Docker image
+    #   run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+
+``` 
+
+Para hacer uso de versionamiento semántico, usaremos de la makertplace de github una accion ya que nos ayuda a crear un tag dependiendo del commit que nosotros hagamos ya sea una majot minor o un patch.
+Tambien puede manejar pre-releases o tambien cambiar para configurar que cada commit haga un tag diferente todo eso se puede configurar revisando la documetacion.
+
+La accion es esta: [https://github.com/marketplace/actions/git-semantic-version?version=v5.4.0](https://github.com/marketplace/actions/git-semantic-version?version=v5.4.0)
+
+Adicional a esto lo que nos pide es tener un **tag** en *git* que no se debe confundir con un commit, sino que es mas bien una etiqueta fija que apunta a un commit específico para marcar versiones o hitos importantes en el proyecto. Para ellos lo que haremos es crear un tag de la siguiente manera:
+
+```bash
+name: Docker Image CI
+
+on:
+  push:
+    branches: ['master']
+  pull_request:
+    branches: ['master']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository - tomar codigo del repositorio
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Git Semantic Version
+      uses: PaulHatch/semantic-version@v5.4.0
+      with:
+        major_pattern: "major:" # hara un nuevo tag major si en el commit colocamos un major:
+        minor_pattern: "feat:" # hara un nuevo tag minor si en el commit colocamos un major:
+        version_format: "${major}.${minor}.${patch}-prerelease${increment}" # cada commit que hagamos incrementara el increment
+      id: version-automatic # este es un id con el que nosotros hacemos referencia a este paso
+        
+    - name: Docker login
+      env:
+        DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        NEW_VERSION: ${{ steps.version-automatic.outputs.version }}
+      run: |
+        echo "Login el docker hub"
+        docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+        echo "New version is $NEW_VERSION !!!!!!!!!!!!!!!"
+    
+#    - name: Build Docker image
+#      run: |
+#        docker build -t edwardrg/teslo-shop-gh-actions:0.0.1 .
+#    - name: Push Docker image
+#      run: |
+#        docker push edwardrg/teslo-shop-gh-actions:0.0.1
+    # - name: Build the Docker image
+    #   run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+
+
+``` 
+
+Ahora como conectamos esta version automatica a nuestro docker para que se pushee a nuestro repositorio en docker hub con ese nuevo tag automatico
+
+> Nota: adicionalmente agregaremos el latest estas lineas **docker build -t edwardrg/teslo-shop-gh-actions:latest .** y esta **docker push edwardrg/teslo-shop-gh-actions:latest** para que se cree el latest como nuestro ultimo tag en el repositorio de docker hub
+
+Asi nuestro *yaml* quedaria de la siguiente manera:
+```bash
+name: Docker Image CI
+
+on:
+  push:
+    branches: ['master']
+  pull_request:
+    branches: ['master']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository - tomar codigo del repositorio
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Git Semantic Version
+      uses: PaulHatch/semantic-version@v5.4.0
+      with:
+        major_pattern: "major:" # hara un nuevo tag major si en el commit colocamos un major:
+        minor_pattern: "feat:" # hara un nuevo tag minor si en el commit colocamos un major:
+        version_format: "${major}.${minor}.${patch}-prerelease${increment}" # cada commit que hagamos incrementara el increment
+      id: version-automatic # este es un id con el que nosotros hacemos referencia a este paso
+        
+    - name: Docker login
+      env:
+        DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      run: |
+        echo "Login el docker hub"
+        docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+    
+    - name: Build Docker image
+      env:
+        NEW_VERSION: ${{ steps.version-automatic.outputs.version }} # Adicionalmente añadimos el latest
+      run: |
+        docker build -t edwardrg/teslo-shop-gh-actions:$NEW_VERSION .
+        docker build -t edwardrg/teslo-shop-gh-actions:latest .
+    - name: Push Docker image
+      env:
+        NEW_VERSION: ${{ steps.version-automatic.outputs.version }}
+      run: |
+        docker push edwardrg/teslo-shop-gh-actions:$NEW_VERSION
+        docker push edwardrg/teslo-shop-gh-actions:latest
+    # - name: Build the Docker image
+    #   run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+
+``` 
+
+Y ya si revisamos el [repositorio de docker hub](https://hub.docker.com/repository/docker/edwardrg/teslo-shop-gh-actions/general) veremos que se ha creado tanto el tag **latest** como el tag que se crea de forma automatica que configuramos gracias a la accion de github que estamos utilizando.
+
+# NGINX para nuestros proyectos
+
+Hablando un poco sobre **nginx** lo que hace es servir archivos estáticos y no solo estáticos sino tambien los archivos dinamicos que se encuentren en el directorio el cual revisaremos en la documentacion de docker hub y que se puedan acceder a través de la url **http://localhost/ruta/a/archivo.html**
+
+> Nota: Adicional a esto es un servidor proxy que se encarga de reenviar las peticiones a los servidores o tambien puede trabajar como proxy inverso o tambien como balanceador de carga.
+
+Para ello lo primero que haremos es descargar la imagen desde docker hub [nginx](https://hub.docker.com/_/nginx) y ahi revisando la documentacion el comando que usaremos es el siguiente:
+
+```bash
+docker run --name nginx-server -d -p 8080:80 nginx:1.27.5-alpine
+``` 
+
+Y automaticamente si vamos a la url **http://localhost:8080** veremos que nos aparece el mensaje **Welcome to nginx!** con su pagina de bienvenida para el usuario.
+
+Yendo un poco mas adelante podemos ver que si nosotros quisieramos exponer alguna web nuestra nos indica que el archivo donde se encuentra el html que nos mostros anteriormente se encuentre en el directorio **/usr/share/nginx/html** y para verlo podemos hacer un **ls** en el directorio y ver que hay un archivo llamado **index.html** que es el que se muestra en la pagina de bienvenida.
+
+Para ingresar a nuestro servidor nginx podemos hacer un **docker exec -it <nombre-contenedor>** y luego podemos ir navegando hasta la url que queramos para ver el archivo buscado.
+
+```bash
+docker exec -it nginx-server /bin/sh
+``` 
+
+Y si vemos a continuacion todo el proceso que seguimos pues tendremos el siguiente resultado
+
+```bash
+Digest: sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+Status: Downloaded newer image for nginx:1.27.5-alpine
+017133e356c062cbd6df63016bb54adce134f3a82e70db0e40f8fdaeb5433d2d
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes> docker container ls 
+CONTAINER ID   IMAGE                           COMMAND                  CREATED              STATUS              PORTS                      NAMES
+017133e356c0   nginx:1.27.5-alpine             "/docker-entrypoint.…"   About a minute ago   Up About a minute   0.0.0.0:8080->80/tcp       nginx-server
+df7ae089558b   mongo:8.0.6-noble               "docker-entrypoint.s…"   2 weeks ago          Up 2 minutes        0.0.0.0:27017->27017/tcp   pokedex-db-1
+b900bba53237   moby/buildkit:buildx-stable-1   "buildkitd --allow-i…"   2 weeks ago          Up 2 minutes                                   buildx_buildkit_container-builder0
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes> docker exec -it nginx-server /bin/sh 
+/ # ls
+bin                   home                  proc                  sys
+dev                   lib                   root                  tmp
+docker-entrypoint.d   media                 run                   usr
+docker-entrypoint.sh  mnt                   sbin                  var
+etc                   opt                   srv
+/ # cd usr/share/nginx/html/
+/usr/share/nginx/html # ls
+50x.html    index.html
+/usr/share/nginx/html # cat index.html
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+``` 
+
+Yendo un poco mas adelante revisaremos el archivo de configuracion de nginx que se encuentra en el directorio **/etc/nginx/conf.d/default.conf** y veremos que en este archivo hay una seccion que nos permite configurar que es lo que utilizaremos para nuestro proyecto.
+Encontraremos cosas como configuracion de servidor el nombre de servidor los logs de error la locacion del index y otras cosas mas que nos permitiran configurar nuestro servidor nginx para nuestro proyecto.
+
+> Un proxy es un servidor que recibe peticiones de un cliente y las reenvia a un servidor o servidores. Esto es como si el cliente se conectara a varios servidores y cada uno de ellos respondiera a la peticion del cliente. Ejemplo si un cliente x entonces nginx recibe la peticion y reenvia la peticion a otro servidor el cual reponde con la peticion del cliente.
+
+```bash
+cd etc/nginx/conf.d/
+cat default.conf
+``` 
+
+Tendremos el siguiente resultado
+```bash
+user  nginx; 
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log notice;
+pid        /run/nginx.pid;
+
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+/etc/nginx/conf.d # ls
+default.conf
+/etc/nginx/conf.d # cat default.conf
+server { # <- configuracion de servidor
+    listen       80;  # <- escucha en el puerto 80
+    listen  [::]:80; # <-  puerto 80 para cualquier interfaz de red
+    server_name  localhost; # <- nombre de servidor
+
+    #access_log  /var/log/nginx/host.access.log  main;
+
+    location / { # <- en la raiz
+        root   /usr/share/nginx/html; # <-  localizacion de la pagina de bienvenida
+        index  index.html index.htm; # <- archivos que va buscar para servir
+    }
+
+    #error_page  404              /404.html;  # <- paginas de error que podemos definir
+
+    # redirect server error pages to the static page /50x.html
+    #
+    error_page   500 502 503 504  /50x.html; 
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+
+    # proxy the PHP scripts to Apache listening on 127.0.0.1:80
+    #
+    #location ~ \.php$ {
+    #    proxy_pass   http://127.0.0.1;
+    #}
+
+    # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+    #
+    #location ~ \.php$ {
+    #    root           html;
+    #    fastcgi_pass   127.0.0.1:9000;
+    #    fastcgi_index  index.php;
+    #    fastcgi_param  SCRIPT_FILENAME  /scripts$fastcgi_script_name;
+    #    include        fastcgi_params;
+    #}
+
+    # deny access to .htaccess files, if Apache's document root
+    # concurs with nginx's one
+    #
+    #location ~ /\.ht {
+    #    deny  all;
+    #}
+}
+``` 
+
+**Listo** ahora para ponerlo en practica usaremos un proyecto que tenemos en la carpeta del repositorio de nombre **react-heroes** que es basicamente una spa que nos permitira configurar nginx para un proyecto realizado en react.
+
+Lo primero que haremos es crear una imagen de nuestro proyecto
+
+Primero crearemos un *.dockerignore* con el siguiente contenido:
+```bash
+node_modules
+.git
+dist
+``` 
+Como segundo paso un **Dockerfile** en el cual nosotros tendremos:
+```bash
+# este stage es para instalar las dependencias de desarrollo
+FROM node:19-alpine3.15 as dev-deps
+WORKDIR /app
+COPY package.json package.json 
+RUN npm install --frozen-lockfile
+
+# este para construir el dist de nuestro proyecto
+FROM node:19-alpine3.15 as builder
+WORKDIR /app
+COPY --from=dev-deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# aqui usaremos nginx para desplegar nuestro proyecto
+FROM nginx:1.27.5-alpine as server-nginx
+EXPOSE 80
+COPY --from=builder /app/dist /usr/share/nginx/html
+CMD ["nginx", "-g", "daemon off;"]
+``` 
+
+> Nota: --frozen-lockfile (o el comando npm ci) asegura que solo se instalen exactamente las versiones fijadas en el lockfile, sin importar el rango en el package.json y sin actualizaciones automáticas
+
+Cosas importantes del **Dockerfile**
+
+En Docker, el contenedor se mantiene activo mientras el proceso principal (PID 1) esté en ejecución. Si Nginx se ejecuta como daemon (por defecto en segundo plano), el proceso principal termina rápidamente y el contenedor se detiene. Al usar daemon off;, Nginx permanece en primer plano (foreground) y mantiene el contenedor activo.
+
+* Sin daemon off;: Nginx se va a segundo plano, el contenedor se apaga.
+* Con daemon off;: Nginx se queda en primer plano, el contenedor sigue corriendo y sirviendo nuestra aplicación.
+
+Para correr nuestra imagen
+```bash
+docker build -t heroes-app . --no-cache
+``` 
+Y automaticamente tendremos algo parecido a esto
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\nginx\react-heroes> docker build -t heroes-app . --no-cache
+[+] Building 41.2s (17/17) FINISHED                                                docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                               0.0s
+ => => transferring dockerfile: 604B                                                               0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 2)                     0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 8)                     0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 15)                    0.0s
+ => [internal] load metadata for docker.io/library/nginx:1.27.5-alpine                             0.0s
+ => [internal] load metadata for docker.io/library/node:19-alpine3.15                              1.5s
+ => [auth] library/node:pull token for registry-1.docker.io                                        0.0s
+ => [internal] load .dockerignore                                                                  0.0s
+ => => transferring context: 64B                                                                   0.0s
+ => [server-nginx 1/2] FROM docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b  0.8s
+ => => resolve docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18  0.7s
+ => [internal] load build context                                                                  0.3s
+ => => transferring context: 8.50MB                                                                0.3s 
+ => [dev-deps 1/4] FROM docker.io/library/node:19-alpine3.15@sha256:12d9c7253f232bb88a9ef6d6e974a  0.0s
+ => => resolve docker.io/library/node:19-alpine3.15@sha256:12d9c7253f232bb88a9ef6d6e974afd90e296c  0.0s 
+ => CACHED [dev-deps 2/4] WORKDIR /app                                                             0.0s 
+ => [dev-deps 3/4] COPY package.json package.json                                                  0.1s 
+ => [auth] library/nginx:pull token for registry-1.docker.io                                       0.0s 
+ => [dev-deps 4/4] RUN npm install --frozen-lockfile                                              34.6s 
+ => [builder 3/5] COPY --from=dev-deps /app/node_modules ./node_modules                            1.2s 
+ => [builder 4/5] COPY . .                                                                         0.1s 
+ => [builder 5/5] RUN npm run build                                                                2.4s 
+ => [server-nginx 2/2] COPY --from=builder /app/dist /usr/share/nginx/html                         0.0s 
+ => exporting to image                                                                             0.2s 
+ => => exporting layers                                                                            0.1s 
+ => => exporting manifest sha256:df8ed28d1ffff2caa6f1ee99c0766723a487910f6b700477251e8adfa9f229e5  0.0s 
+ => => exporting config sha256:012f8d3ccdb55f986afd25f4b7f617a0c213160194645cbfec076b3d56d9e10d    0.0s 
+ => => exporting attestation manifest sha256:6d97ce641466548f10ede589e8a0188c6743c8a84c6f495e27e9  0.0s 
+ => => exporting manifest list sha256:a0d3b34cc0c0ef0bf203cf6588a079c93d603ff146e9d579fbceeb74827  0.0s 
+ => => naming to docker.io/library/heroes-app:latest                                               0.0s 
+ => => unpacking to docker.io/library/heroes-app:latest                                            0.0s 
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ub36ej9hpsfimd038qjnoev2e
+
+ 3 warnings found (use docker --debug to expand):
+ - FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 2)
+ - FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 8)
+ - FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 15)
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\nginx\react-heroes> docker images
+REPOSITORY               TAG               IMAGE ID       CREATED         SIZE
+heroes-app               latest            a0d3b34cc0c0   2 minutes ago   73.9MB
+``` 
+
+Ahora para correr nuestra imagen
+```bash
+docker container run -p 80:80 heroes-app
+``` 
+Y cosa cosa importante veremos que la aplicacion esta funcionando pero estamos en la ruta **http://localhost/login** ahora que pasa si nosotros recargamos la pagina en esa ruta nos saldra un error de **404** asi eso pasa porque no estamos configurando nginx aun. Ya que aunque react tiene su router todas las rutas estan saliendo desde la raiz **http://localhost/** por lo cual debemos hacer mas configuraciones.
+
+Borraremos la imagen previa que construirmos
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\nginx\react-heroes> docker container ls -a
+CONTAINER ID   IMAGE                           COMMAND                  CREATED         STATUS                      PORTS                      NAMES
+2bb0433e8425   heroes-app                      "/docker-entrypoint.…"   4 minutes ago   Exited (0) 44 seconds ago                              fervent_ritchie
+df7ae089558b   mongo:8.0.6-noble               "docker-entrypoint.s…"   2 weeks ago     Up 55 minutes               0.0.0.0:27017->27017/tcp   pokedex-db-1
+b900bba53237   moby/buildkit:buildx-stable-1   "buildkitd --allow-i…"   2 weeks ago     Up 55 minutes                                          buildx_buildkit_container-builder0
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\nginx\react-heroes> docker container rm -f 2bb
+2bb
+``` 
+
+Bien para arreglar esto cambiaremos la configuracion de nuestro servidor **nginx** para ello haremos una copia del archivo de configuracion del servidor que esta en el directorio **/etc/nginx/conf.d/default.conf** y lo que haremos es copiar el contenido del archivo **default.conf** en un nuevo archivo llamado **nginx.conf** y luego modificaremos el archivo para que lo use nuestro proyecto. Este archivo estara en la ruta de nuestro proyecto **/react-heroes/nginx/nginx.conf**
+
+Basicamente la linea que necesitamos modificar es la siguiente en la parte del location
+```bash
+try_files $uri $uri/ /index.html;
+``` 
+Por lo cual nuestro archivo **nginx.conf** quedara de la siguiente manera
+
+```bash
+server { # <- configuracion de servidor
+    listen       80;  # <- escucha en el puerto 80
+    listen  [::]:80; # <-  puerto 80 para cualquier interfaz de red
+    server_name  localhost; # <- nombre de servidor
+
+    #access_log  /var/log/nginx/host.access.log  main;
+
+    location / { # <- en la raiz
+        root   /usr/share/nginx/html; # <-  localizacion de la pagina de bienvenida
+        index  index.html index.htm; # <- archivos que va buscar para servir
+        try_files $uri $uri/ /index.html; # !!!!!!!!!aqui es donde le diremos que todas las rutas sean servidas desde la raiz!!!!!!!!!
+    }
+
+    #error_page  404              /404.html;  # <- paginas de error que podemos definir
+
+    # redirect server error pages to the static page /50x.html
+    #
+    error_page   500 502 503 504  /50x.html; 
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+
+    # proxy the PHP scripts to Apache listening on 127.0.0.1:80
+    #
+    #location ~ \.php$ {
+    #    proxy_pass   http://127.0.0.1;
+    #}
+
+    # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+    #
+    #location ~ \.php$ {
+    #    root           html;
+    #    fastcgi_pass   127.0.0.1:9000;
+    #    fastcgi_index  index.php;
+    #    fastcgi_param  SCRIPT_FILENAME  /scripts$fastcgi_script_name;
+    #    include        fastcgi_params;
+    #}
+
+    # deny access to .htaccess files, if Apache's document root
+    # concurs with nginx's one
+    #
+    #location ~ /\.ht {
+    #    deny  all;
+    #}
+}
+``` 
+
+Y nuestro **Dockerfile**
+```bash
+# este stage es para instalar las dependencias de desarrollo
+FROM node:19-alpine3.15 as dev-deps
+WORKDIR /app
+COPY package.json package.json 
+RUN npm install --frozen-lockfile
+
+# este para construir el dist de nuestro proyecto
+FROM node:19-alpine3.15 as builder
+WORKDIR /app
+COPY --from=dev-deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# aqui usaremos nginx para desplegar nuestro proyecto
+FROM nginx:1.27.5-alpine as server-nginx
+EXPOSE 80
+COPY --from=builder /app/dist /usr/share/nginx/html
+RUN rm /etc/nginx/conf.d/default.conf
+COPY ./nginx/nginx.conf /etc/nginx/conf.d/ # Con esta linea estamos copiando nuestro archivo de configuracion nuevo
+CMD ["nginx", "-g", "daemon off;"]
+``` 
+
+Para hacer correr esta nueva imagen
+```bash
+docker build -t heroes-app . --no-cache
+docker container run -p 80:80 heroes-app
+``` 
+
+Y walla imagen corriendo recargando la pagina sin ver el error **404**. Pero una cosa no estamos viendo las iamgenes para ellos haremos lo siguiente ya falta poco.
+
+Como lo tenemos las imaegnes en una carpeta **assets** modificaremos nuestro **Dockerfile**
+```bash
+# este stage es para instalar las dependencias de desarrollo
+FROM node:19-alpine3.15 as dev-deps
+WORKDIR /app
+COPY package.json package.json 
+RUN npm install --frozen-lockfile
+
+# este para construir el dist de nuestro proyecto
+FROM node:19-alpine3.15 as builder
+WORKDIR /app
+COPY --from=dev-deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# aqui usaremos nginx para desplegar nuestro proyecto
+FROM nginx:1.27.5-alpine as server-nginx
+EXPOSE 80
+COPY --from=builder /app/dist /usr/share/nginx/html
+RUN rm /etc/nginx/conf.d/default.conf
+COPY ./nginx/nginx.conf /etc/nginx/conf.d/
+COPY ./assets /usr/share/nginx/html/assets
+CMD ["nginx", "-g", "daemon off;"]
+``` 
+
+# Kubernetes
+
+Basicamente Kubernetes es un sistema de orquestacion de contenedores que nos permite crear y desplegar nuestros contenedores en un cluster de computadoras. Esto nos permite escalar nuestro aplicacion sin tener que preocuparnos de la cantidad de recursos que necesitamos para ejecutarla.
+
+Lo primero que instalaremos es **minikube** asi lo instalaremos siguiendo los pasos que indican en su [sitio web](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fwindows%2Fx86-64%2Fstable%2Fwindows+package+manager)
+
+Nosotros instalaremos minikube en nuestro equipo con WINDOWS usando Winget
+
+Como sabemos que tenemos winget
+```bash
+PS C:\Users\Pc-s> winget --version
+v1.10.390
+``` 
+Asi lo siguiente que haremos es instalarlo
+```bash
+winget install Kubernetes.minikube
+``` 
+
+Asi luego de que instale lo siguiente que haremos es verificar la variable de entorno y tambien en la consola verificar que minikube este instalado
+```bash
+PS C:\Users\Pc-s> minikube version
+minikube version: v1.35.0
+commit: abcdefsasd-dirty
+PS C:\Users\Pc-s> echo $Env:Path
+``` 
+
+Posterior a eso verificaremos con que driver esta corriendo minikube para crear un cluster estos podrian ser uno de docker o virtual box o cualquier otro que nos permita crear un cluster de kubernetes 
+
+Con este comando veremos que driver esta por defecto y si quisiseramos asignar lo hacemos con set
+```bash
+PS C:\Users\Pc-s> cat .\.minikube\config\config.json
+{
+    "driver": "docker"
+}
+
+PS C:\Users\Pc-s> minikube config set driver docker # Con este comando asignamos el driver de docker
+``` 
+
+Y ya lo siguiente que haremos es:
+
+```bash
+minikube start
+``` 
+Con este comando iniciamos el cluster de kubernetes y podemos ver en nuestro docker desktop como esta corriendo.
+
+Asi tambien para verificar el cluster tenemos los siguientes comandos
+
+```bash
+PS C:\Users\Pc-s> minikube status # Para ver el estado del cluster 
+minikube
+type: Control Plane
+host: Running
+kubelet: Running
+apiserver: Running
+kubeconfig: Configured
+
+PS C:\Users\Pc-s> minikube profile list # Para ver los perfiles que tenemos en nuestro equipo. Podemos tener mas de un perfil osea mas de un cluster
+|----------|-----------|---------|--------------|------|---------|--------|-------|----------------|--------------------|
+| Profile  | VM Driver | Runtime |      IP      | Port | Version | Status | Nodes | Active Profile | Active Kubecontext |
+|----------|-----------|---------|--------------|------|---------|--------|-------|----------------|--------------------|
+| minikube | docker    | docker  | 192.168.49.2 | 8443 | v1.32.0 | OK     |     1 | *              | *                  |
+|----------|-----------|---------|--------------|------|---------|--------|-------|----------------|--------------------|
+``` 
+
+## Configurando una base de datos en POSTGRESQL
+
+Para crear esto haremos uso de un configmap que es un objeto de kubernetes que nos permite almacenar datos en forma de key value.
+
+Si vamos a la siguiente [pagina de de kubernetes](https://kubernetes.io/docs/concepts/configuration/configmap/)  veremos un snippet con una guia para configurar nuestro archivo.
+
+Conceptos importantes:
+* **servicios**: Un servicio es un objeto de kubernetes que se utiliza para proporcionar acceso a un conjunto de recursos, como por ejemplo una base de datos o un servicio web. Estos servicios tienen una direccion IP fija y un puerto fijo por el que se pueden acceder a ellos.
+* **secretos**: Un secreto es un objeto de kubernetes que se utiliza para almacenar informacion confidencial, como contraseñas o claves de autenticacion.
+* **Encode | Decode**: Encode es el proceso de convertir datos de forma segura como por ejemplo una palabra que sea codificada en base64 para que sea transmitida por la red. Decode es el proceso contrario de decodificar la informacion codificada.
+* **Deployment**: Un deployment es un objeto de kubernetes que se utiliza para desplegar y actualizar aplicaciones en un cluster de kubernetes. Los deployments se utilizan para crear y mantener una copia de un conjunto de recursos como ser un pod un servicio o un replicaset.
+
+Nuestro archivo de configuracion de postgres **postgres-config.yml** quedara de la siguiente manera
+```bash
+apiVersion: v1 # <- Version de kubernetes
+kind: ConfigMap # <- Tipo de objeto
+metadata:
+  name: postgres-config # <- Nombre del configmap para los key value pairs
+data:
+  DB_NAME: postgres # <- Nombre de la base de datos
+  DB_HOST: postgres-service # <- Este seria el nombre del servidor donde esta la base de datos
+  DB_PORT: "5432" # <- Puerto de la base de datos
+``` 
+
+Para nuestro archivo de secretos **postgres-secrets.yml** usaremos un snippet tambien de la [pagina de kubernetes](https://kubernetes.io/docs/concepts/configuration/secret/) adicionalmente tambien crearemos el servicio por debajo y lo separaremos con **---** que basicamente es un separador de objetos es como si nos estariamos creando un archivo separado pero generalmente lo colocan servicio y deployment en el mismo archivo.
+Estos servicios gracias a la [siguiente pagina](https://kubernetes.io/docs/concepts/services-networking/service/).
+
+Para transformar nuestras variables que guardaremos en los secrets usaremos la siguiente [pagina para codificar](https://codebeautify.org/base64-encode) y obtendremos el codigo que guardaremos en el secreto.
+
+Y quedara de la siguiente manera (obviamente borrando los comentarios)
+
+```bash
+apiVersion: v1
+kind: postgres-secrets
+metadata:
+  name: dotfile-secret
+type: Opaque
+data:
+  DB_USER: cG9zdGdyZXM= # <- postgres 
+  DB_PASSWORD: UEBzczEyMzQ1Ng== # <- P@ss123456
+``` 
+
+Ya finalizando usaremos un deployment para desplegar nuestro pod que quedara de la siguiente manera gracias a la [documentacion en la pagina](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+
+Y el archivo quedara asi:
+```bash
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: postgres-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: postgres # <- Etiquetas que nos ayudaran a identificar
+spec:
+  replicas: 1 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: postgres # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: postgres # <- etiquetas
+    spec:
+      containers:
+      - name: postgres # <- Nombre del  # <- Imagen que se usara
+        image: postgres:16.3-alpine3.20 # <- Imagen que se usara
+        ports:
+        - containerPort: 5432  # <- Puerto que se usara
+        env:
+        - name: POSTGRES_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_PASSWORD # <- Nombre de la variable en el secreto
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  selector:
+    app.kubernetes.io/name: postgres # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 5432 # <- Cualquier puerto que queremos comunicar dentro del cluster
+      targetPort: 5432 # <- Puerto del contenedor en el pod
+
+```
+
+## Ahora procederemos a crear y ver corriendo el pod
+
+Para esto haremos uso de 2 comandos primeramente:
+* kubectl version -> Esto nos muestra la version de kubernetes que estamos usando
+* kubectl get all -> Esto nos muestra todos los objetos que estamos usando (en este caso nos esta mostrando la ip de nuestro cluster)
+
+---
+### Cosa importante - que pasa si minikube no esta corriendo
+
+Podria pasar que reiniciamos nuestro computador y al hacer **minikube get all** nos encontrariamos con este mensaje:
+
+```bash
+PS C:\Users\Pc-s> kubectl get all
+E0524 21:41:27.154171    7152 memcache.go:265] couldn't get current server API group list: Get "https://127.0.0.1:64364/api?timeout=32s": dial tcp 127.0.0.1:64364: connectex: No connection could be made because the target machine actively refused it.
+E0524 21:41:27.157502    7152 memcache.go:265] couldn't get current server API group list: Get "https://127.0.0.1:64364/api?timeout=32s": dial tcp 127.0.0.1:64364: connectex: No connection could be made because the target machine actively refused it.
+E0524 21:41:27.160118    7152 memcache.go:265] couldn't get current server API group list: Get "https://127.0.0.1:64364/api?timeout=32s": dial tcp 127.0.0.1:64364: connectex: No connection could be made because the target machine actively refused it.
+E0524 21:41:27.163209    7152 memcache.go:265] couldn't get current server API group list: Get "https://127.0.0.1:64364/api?timeout=32s": dial tcp 127.0.0.1:64364: connectex: No connection could be made because the target machine actively refused it.
+E0524 21:41:27.165779    7152 memcache.go:265] couldn't get current server API group list: Get "https://127.0.0.1:64364/api?timeout=32s": dial tcp 127.0.0.1:64364: connectex: No connection could be made because the target machine actively refused it.
+Unable to connect to the server: dial tcp 127.0.0.1:64364: connectex: No connection could be made because the target machine actively refused it.
+```
+
+Por lo cual si hacemos un **minikube status**
+
+```bash
+type: Control Plane
+host: Stopped
+kubelet: Stopped
+apiserver: Stopped
+kubeconfig: Stopped
+```
+
+Entonces lo que sigue es iniciar el minikube con el comando:
+```bash
+minikube start
+# y luego veremos
+PS C:\Users\Pc-s> minikube status
+minikube
+type: Control Plane
+host: Running
+kubelet: Running
+apiserver: Running
+kubeconfig: Configured
+
+PS C:\Users\Pc-s>
+```
+
+**Esta parte te la puedes saltar si quieres.** Que pasa si nosotros pensamos que como estamos usando el driver de docker entonces no deberiamos tener problemas mas que iniciar el cluster con un **docker container run -d <minikube>** entonces ya esta corriendo. Pues no es del todo asi ya que aunque use el driver no es un contenedor normal que se inicializa y ya esta corriendo perfectamente sino que al ser un cluster de kubernetes debe pasar por varios pasos como inicializar la configuracion, configurar las redes, actualizar el kubeconfig para que se pueda conectar con kubectl y muchos mas pasos por lo cual en resumen.
+
+
+|Acción|	Resultado|
+| -- | -- |
+|docker container start minikube	|Solo inicia el contenedor, pero no garantiza que Kubernetes esté funcionando correctamente.|
+|minikube start	|Arranca y configura todo el clúster Kubernetes correctamente, incluyendo el contenedor y servicios.|
+
+---
+
+```bash
+PS C:\Users\Pc-s> kubectl version
+Client Version: v1.30.5
+Kustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3
+Server Version: v1.32.0
+WARNING: version difference between client (1.30) and server (1.32) exceeds the supported minor version skew of +/-1
+PS C:\Users\Pc-s> kubectl get all
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+service/kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   55s
+PS C:\Users\Pc-s>
+``` 
+
+Ahora como tenemos 3 archivos
+1. postgres-config.yml -> Este es nuestro configmap
+2. postgres-secrets.yml -> Aqui estan nuestros secrets
+3. postgres.yml -> Aqui esta el archivo de despliege con el pod que queremos crear y su servicio
+
+Debemos ir registrando la configuracion de cada uno de nuestros archivos. Es decir ejecutar estos yaml dentro de nuestro cluster.
+
+> NOTA: Tecnicamente no importa el orden segun si esque tenemos dependencias. En el caso del postgres.yml si tenemos usando el postgres-secrets.yml por lo cual iremos registrando por pasos.
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\postgres-config.yml
+configmap/postgres-config created
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\postgres-secrets.yml
+secret/postgres-secrets created
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\postgres.yml
+deployment.apps/postgres-deployment created
+service/postgres-service unchanged
+``` 
+
+Ahora si volvemos a hacer el get all
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                    READY   STATUS              RESTARTS   AGE
+pod/postgres-deployment-8685447-6r7sh   0/1     ContainerCreating   0          9s
+
+NAME                       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+service/kubernetes         ClusterIP   10.96.0.1       <none>        443/TCP    10m
+service/postgres-service   ClusterIP   10.105.70.102   <none>        5432/TCP   2m57s
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/postgres-deployment   0/1     1            0           9s
+
+NAME                                          DESIRED   CURRENT   READY   AGE
+replicaset.apps/postgres-deployment-8685447   1         1         0       9s
+``` 
+
+Podemos ver que hay estados en los logs que nos muestra  **0/1** esto puede pasar porque la imagen se esta descargando o que se esta configurando u otros motivos. Lo importante esque si volvemos a ver los logs veremos que esta corriendo.
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                    READY   STATUS    RESTARTS   AGE
+pod/postgres-deployment-8685447-6r7sh   1/1     Running   0          8m22s
+
+NAME                       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+service/kubernetes         ClusterIP   10.96.0.1       <none>        443/TCP    19m
+service/postgres-service   ClusterIP   10.105.70.102   <none>        5432/TCP   11m
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/postgres-deployment   1/1     1            1           8m22s
+
+NAME                                          DESIRED   CURRENT   READY   AGE
+replicaset.apps/postgres-deployment-8685447   1         1         1       8m22s
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo>
+``` 
+
+Y ya cosas importantes que podemos ver que esta corriendo correctamente tanto nuestro pod de postgres como su servicio y los archivos de configuracion y secretos que definimos.
+
+Idealmente que pasaria si fallaria y quisieramos ver informacion de ese **deployment** asi ejecutamos lo siguiente.
+
+```bash
+kubectl describe deployment.apps/postgres-deployment
+``` 
+
+Y tendremos un resultado de este tipo:
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl describe deployment.apps/postgres-deployment
+Name:                   postgres-deployment
+Namespace:              default
+CreationTimestamp:      Wed, 21 May 2025 22:43:43 -0400
+Labels:                 app=postgres
+Annotations:            deployment.kubernetes.io/revision: 1
+Selector:               app=postgres
+Replicas:               1 desired | 1 updated | 1 total | 1 available | 0 unavailable
+StrategyType:           RollingUpdate
+MinReadySeconds:        0
+RollingUpdateStrategy:  25% max unavailable, 25% max surge
+Pod Template:
+  Labels:  app=postgres
+  Containers:
+   postgres:
+    Image:      postgres:16.3-alpine3.20
+    Port:       5432/TCP
+    Host Port:  0/TCP
+    Environment:
+      POSTGRES_PASSWORD:  <set to the key 'DB_PASSWORD' in secret 'postgres-secrets'>  Optional: false
+    Mounts:               <none>
+  Volumes:                <none>
+  Node-Selectors:         <none>
+  Tolerations:            <none>
+Conditions:
+  Type           Status  Reason
+  ----           ------  ------
+  Available      True    MinimumReplicasAvailable
+  Progressing    True    NewReplicaSetAvailable
+OldReplicaSets:  <none>
+NewReplicaSet:   postgres-deployment-8685447 (1/1 replicas created)
+Events:
+  Type    Reason             Age   From                   Message
+  ----    ------             ----  ----                   -------
+  Normal  ScalingReplicaSet  10m   deployment-controller  Scaled up replica set postgres-deployment-8685447 from 0 to 1
+``` 
+
+Y podemos ver que imagen estamos usando tambien informacion acerca delnro de recplicas si esque estan o no corriendo.
+
+Para ver mas informacion acerca de nuestro pod podemos hacer lo siguiente:
+
+```bash
+kubectl logs pod/postgres-deployment-8685447-6r7sh 
+``` 
+
+Y nos mostrara un chorizo de informacion en la cual la mas relevante es saber que nuestra base de datos esta corriendo en el puerto X y que ya esta lista para aceptar conexiones.
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl logs pod/postgres-deployment-8685447-6r7sh
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.utf8".
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /var/lib/postgresql/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default max_connections ... 100
+selecting default shared_buffers ... 128MB
+selecting default time zone ... UTC
+creating configuration files ... ok
+running bootstrap script ... ok
+sh: locale: not found
+2025-05-22 02:44:00.369 UTC [35] WARNING:  no usable system locales were found
+performing post-bootstrap initialization ... ok
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+syncing data to disk ... ok
+
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /var/lib/postgresql/data -l logfile start
+
+waiting for server to start....2025-05-22 02:44:00.913 UTC [41] LOG:  starting PostgreSQL 16.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit
+2025-05-22 02:44:00.915 UTC [41] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2025-05-22 02:44:00.919 UTC [44] LOG:  database system was shut down at 2025-05-22 02:44:00 UTC
+2025-05-22 02:44:00.923 UTC [41] LOG:  database system is ready to accept connections
+ done
+server started
+
+/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+
+waiting for server to shut down...2025-05-22 02:44:01.012 UTC [41] LOG:  received fast shutdown request
+.2025-05-22 02:44:01.013 UTC [41] LOG:  aborting any active transactions
+2025-05-22 02:44:01.015 UTC [41] LOG:  background worker "logical replication launcher" (PID 47) exited with exit code 1
+2025-05-22 02:44:01.015 UTC [42] LOG:  shutting down
+2025-05-22 02:44:01.017 UTC [42] LOG:  checkpoint starting: shutdown immediate
+2025-05-22 02:44:01.025 UTC [42] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.003 s, sync=0.002 s, total=0.010 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/14EFC28, redo lsn=0/14EFC28
+2025-05-22 02:44:01.029 UTC [41] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+2025-05-22 02:44:01.132 UTC [1] LOG:  starting PostgreSQL 16.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit
+2025-05-22 02:44:01.132 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2025-05-22 02:44:01.132 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2025-05-22 02:44:01.135 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2025-05-22 02:44:01.139 UTC [55] LOG:  database system was shut down at 2025-05-22 02:44:01 UTC
+2025-05-22 02:44:01.143 UTC [1] LOG:  database system is ready to accept connections
+2025-05-22 02:49:01.396 UTC [53] LOG:  checkpoint starting: time
+2025-05-22 02:49:05.551 UTC [53] LOG:  checkpoint complete: wrote 44 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.138 s, sync=0.007 s, total=4.156 s; sync files=11, longest=0.004 s, average=0.001 s; distance=261 kB, estimate=261 kB; lsn=0/15310C8, redo lsn=0/1531090
+``` 
+
+## Colocando pgadmin a nuestro deployment para administrar la base de datos
+
+Nos crearemos nuevos secretos para nuestro pgadmin esto lo haremos esta vez con el siguiente comando en nuestra powershell.
+
+> **echo -n algoaqui | base64** -> esto nos permite codificar algo y luego convertirlo a base64
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> echo -n batman@google.com | base64
+YmF0bWFuQGdvb2dsZS5jb20NCg==
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> echo -n 123456 | base64
+MTIzNDU2DQo=
+``` 
+
+Y nuestro archivo de secretos **pg-admin-secrets.yml** quedaria de la siguiente manera:
+
+```bash
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-admin-secrets
+type: Opaque
+data:
+  PG_USER: YmF0bWFuQGdvb2dsZS5jb20NCg== # batman@google.com
+  PG_PASSWORD: MTIzNDU2DQo= # 123456
+``` 
+
+Ahora procederemos a crear nuestro deployment que quedara asi:
+
+Algo importante aqui es que usaremos el **NodePort** que nos servira para comunicarnos con nuestro pod osea exponer nuestro pgadmin en nuestra maquina. Si revisamos la [documentacion](https://kubernetes.io/docs/concepts/services-networking/service/) y buscamos lo del NodePort los puertos que podemos exponer los puertos van desde 30000-32767 (el puerto de nodeport tiene que estar entre ese rango ya que si fuera un rango fuera de esos puede ser que esos puertos esten usando por kubernetes). 
+
+```bash
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: pg-admin-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: pg-admin # <- Etiquetas que nos ayudaran a identificar
+spec:
+  replicas: 1 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: pg-admin # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: pg-admin # <- etiquetas
+    spec:
+      containers:
+      - name: pg-admin # <- Nombre del  # <- Imagen que se usara
+        image: dpage/pgadmin4:8.9 # <- Imagen que se usara
+        ports:
+        - containerPort: 80  # <- Puerto que se usara
+        env:
+        - name: PGADMIN_DEFAULT_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: pg-admin-secrets # <- Nombre del secreto
+              key: PG_PASSWORD # <- Nombre de la variable en el secreto
+        - name: PGADMIN_DEFAULT_EMAIL # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: pg-admin-secrets # <- Nombre del secreto
+              key: PG_USER # <- Nombre de la variable en el secreto
+        - name: PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION # Esto por temas de configuracion
+          value: "False"
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-admin-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  type: NodePort # <- Este nodeport nos servira para la comunicacion externa para exponer el pgadmin y verlo en nuesta maquina
+  selector:
+    app.kubernetes.io/name: pg-admin # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 80 # <- Cualquier puerto que queremos comunicar dentro del cluster
+      targetPort: 80 # <- Puerto del contenedor en el pod
+      nodePort: 30200 # Puerto que expondra a nuestro equipo
+
+``` 
+
+Ahora para hacer correr nuestro deployment podemos hacer lo siguiente:
+
+* Primero correr nuestros secretos
+* Luego correr nuestro deployment y verificar
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\pg-admin-secrets.yml
+secret/pg-admin-secrets created
+``` 
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\pg-admin.yml
+deployment.apps/pg-admin-deployment created
+service/pg-admin-service created
+``` 
+
+Y si lo revisamos sabemos que tardara en iniciar el pod
+
+```bash
+kubectl get all
+
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                      READY   STATUS              RESTARTS        AGE
+pod/pg-admin-deployment-cf946c858-qgr9f   0/1     ContainerCreating   0               3s
+pod/postgres-deployment-8685447-6r7sh     1/1     Running             1 (2d23h ago)   3d
+
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP        3d
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP   3s
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP       3d
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/pg-admin-deployment   0/1     1            0           3s
+deployment.apps/postgres-deployment   1/1     1            1           3d
+
+NAME                                            DESIRED   CURRENT   READY   AGE
+replicaset.apps/pg-admin-deployment-cf946c858   1         1         0       3s
+replicaset.apps/postgres-deployment-8685447     1         1         1       3d
+``` 
+Podemos ver que en el estado de nuestro pod esta todavia creando el container y que todavia no esta corriendo.
+Para darle seguimiento hacemos lo siguiente:
+
+```bash
+kubectl describe deployment.apps/pg-admin-deployment
+
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl describe deployment.apps/pg-admin-deployment
+Name:                   pg-admin-deployment
+Namespace:              default
+CreationTimestamp:      Sat, 24 May 2025 22:54:58 -0400
+Labels:                 app=pg-admin
+Annotations:            deployment.kubernetes.io/revision: 1
+Selector:               app=pg-admin
+Replicas:               1 desired | 1 updated | 1 total | 0 available | 1 unavailable
+StrategyType:           RollingUpdate
+MinReadySeconds:        0
+RollingUpdateStrategy:  25% max unavailable, 25% max surge
+Pod Template:
+  Labels:  app=pg-admin
+  Containers:
+   pg-admin:
+    Image:      dpage/pgadmin4:8.9
+    Port:       80/TCP
+    Host Port:  0/TCP
+    Environment:
+      PGADMIN_DEFAULT_PASSWORD:                   <set to the key 'PG_PASSWORD' in secret 'pg-admin-secrets'>  Optional: false
+      PGADMIN_DEFAULT_EMAIL:                      <set to the key 'PG_USER' in secret 'pg-admin-secrets'>      Optional: false
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION:  false
+    Mounts:                                       <none>
+  Volumes:                                        <none>
+  Node-Selectors:                                 <none>
+  Tolerations:                                    <none>
+Conditions:
+  Type           Status  Reason
+  ----           ------  ------
+  Available      False   MinimumReplicasUnavailable
+  Progressing    True    ReplicaSetUpdated
+OldReplicaSets:  <none>
+NewReplicaSet:   pg-admin-deployment-cf946c858 (1/1 replicas created)
+Events:
+  Type    Reason             Age    From                   Message
+  ----    ------             ----   ----                   -------
+  Normal  ScalingReplicaSet  3m48s  deployment-controller  Scaled up replica set pg-admin-deployment-cf946c858 from 0 to 1
+``` 
+
+Ahi podemos ver que el pod reconocio las variables secretas que creamos anteriormente y que en el estado las replicas estan en 0 y 1. 
+Si volvemos a intentar hacer un **get all**
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                      READY   STATUS             RESTARTS        AGE
+pod/pg-admin-deployment-cf946c858-qgr9f   0/1     CrashLoopBackOff   5 (84s ago)     4m50s
+pod/postgres-deployment-8685447-6r7sh     1/1     Running            1 (2d23h ago)   3d
+
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP        3d
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP   4m50s
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP       3d
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/pg-admin-deployment   0/1     1            0           4m50s
+deployment.apps/postgres-deployment   1/1     1            1           3d
+
+NAME                                            DESIRED   CURRENT   READY   AGE
+replicaset.apps/pg-admin-deployment-cf946c858   1         1         0       4m50s
+replicaset.apps/postgres-deployment-8685447     1         1         1       3d
+``` 
+
+Ahi podemos ver **CrashLoopBackOff** lo que indica que el pod no esta corriendo y que no podemos ver nada en el puerto 80 que estaria exponiendo el pgadmin.
+Ahora para debbugearlo podemos ver los **logs** de nuestro pod para ver que paso.
+Asi usamos **kubectl logs pod/pg-admin-deployment-cf946c858-qgr9f**
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl logs pod/pg-admin-deployment-cf946c858-qgr9f
+'batman@google.com
+' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+``` 
+
+Sorpresa sorpresa nuestas variables que definimos en el secreto estan definidas mal y las tenemos que arreglar.
+Deberian ser asi:
+
+Una cosa que notamos fue que la codificacion que hicimos estaba mal ya que al ser en powershell este agrega un salto de linea y eso afectaba a la codificacion por lo cual usamos una terminal de linux. y cambiamos el correo
+
+```bash
+Pc-s@DESKTOP-1M952EM MINGW64 ~/Desktop/EQUIPO/NAXO/PRACTICAS/DockerApuntes (master)
+$ echo -n "ignaccio7@gmail.com" | base64
+aWduYWNjaW83QGdtYWlsLmNvbQ==
+``` 
+
+```bash
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-admin-secrets
+type: Opaque
+data:
+  PGADMIN_DEFAULT_EMAIL: aWduYWNjaW83QGdtYWlsLmNvbQ== # <- Aqui cambiamos esta por ignaccio7@gmail.com
+  PGADMIN_DEFAULT_PASSWORD: MTIzNDU2 # <- Aqui codificamos la misma contraseña pero en una terminal linux (123456)
+``` 
+
+Y en nuestro archivo **pg-admin.yml** haremos esto.
+
+```bash
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: pg-admin-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: pg-admin # <- Etiquetas que nos ayudaran a identificar (como podria ser el caso de service se vincula con esto en el selector)
+spec:
+  replicas: 1 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: pg-admin # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: pg-admin # <- etiquetas
+    spec:
+      containers:
+      - name: pg-admin # <- Nombre del  # <- Imagen que se usara
+        image: dpage/pgadmin4:8.9 # <- Imagen que se usara
+        ports:
+        - containerPort: 80  # <- Puerto que se usara
+        env:
+        - name: PGADMIN_DEFAULT_EMAIL # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: pg-admin-secrets # <- Nombre del secreto
+              key: PGADMIN_DEFAULT_EMAIL # <- Nombre de la variable en el secreto
+        - name: PGADMIN_DEFAULT_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: pg-admin-secrets # <- Nombre del secreto
+              key: PGADMIN_DEFAULT_PASSWORD # <- Nombre de la variable en el secreto
+        - name: PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION # Esto por temas de configuracion
+          value: "False"
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-admin-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  type: NodePort # <- Este nodeport nos servira para la comunicacion externa para exponer el pgadmin y verlo en nuesta maquina
+  selector:
+    app: pg-admin # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 80 # <- Cualquier puerto que queremos comunicar dentro del cluster
+      targetPort: 80 # <- Puerto del contenedor en el pod
+      nodePort: 30200 # Puerto que expondra a nuestro equipo
+``` 
+
+Luego volvemos a ejecutar los comandos anteriores y veremos que nuestro pod ya esta corriendo
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\pg-admin-secrets.yml
+secret/pg-admin-secrets configured
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\pg-admin.yml
+deployment.apps/pg-admin-deployment unchanged
+service/pg-admin-service unchanged
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                       READY   STATUS        RESTARTS      AGE
+pod/pg-admin-deployment-85799ffd77-bpbdc   1/1     Running       2 (15s ago)   16s
+pod/pg-admin-deployment-89b4757fb-jzfg7    0/1     Terminating   2             16s
+pod/postgres-deployment-8685447-6r7sh      1/1     Running       2 (17h ago)   3d17h
+
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP        3d18h
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP   17h
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP       3d17h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/pg-admin-deployment   1/1     1            1           17h
+deployment.apps/postgres-deployment   1/1     1            1           3d17h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/pg-admin-deployment-5956cb8997   0         0         0       17m
+replicaset.apps/pg-admin-deployment-69b5d7dcc8   0         0         0       17h
+replicaset.apps/pg-admin-deployment-85799ffd77   1         1         1       5m52s
+replicaset.apps/pg-admin-deployment-89b4757fb    0         0         0       9m1s
+replicaset.apps/pg-admin-deployment-cf946c858    0         0         0       17h
+replicaset.apps/postgres-deployment-8685447      1         1         1       3d17h
+``` 
+
+Recuerda que debemos esperar un momento para que el pod se cree y luego podemos ver que esta corriendo
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                       READY   STATUS    RESTARTS        AGE
+pod/pg-admin-deployment-85799ffd77-bpbdc   1/1     Running   2 (9m50s ago)   9m51s
+pod/postgres-deployment-8685447-6r7sh      1/1     Running   2 (17h ago)     3d18h
+
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP        3d18h
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP   17h
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP       3d18h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/pg-admin-deployment   1/1     1            1           17h
+deployment.apps/postgres-deployment   1/1     1            1           3d18h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/pg-admin-deployment-5956cb8997   0         0         0       27m
+replicaset.apps/pg-admin-deployment-69b5d7dcc8   0         0         0       17h
+replicaset.apps/pg-admin-deployment-85799ffd77   1         1         1       15m
+replicaset.apps/pg-admin-deployment-89b4757fb    0         0         0       18m
+replicaset.apps/pg-admin-deployment-cf946c858    0         0         0       17h
+replicaset.apps/postgres-deployment-8685447      1         1         1       3d18h
+``` 
+
+Podemos ver muchas replicas de nuestro pod y es porque tuvimos problemas al crear el pgadmin por lo cual eliminaremos esas que no nos sirven pero lo veremos en el siguiente subtitulo
+
+#### ¿Qué está pasando?
+Cada vez que hacemos algo como:
+
+```bash
+kubectl apply -f pgadmin-deployment.yaml
+```
+Y e
+se archivo tiene algún cambio en el Deployment, Kubernetes:
+* Crea un nuevo ReplicaSet con un hash diferente (como 85799ffd77, 89b4757fb, etc.).
+* Escala el nuevo ReplicaSet a 1 (o lo que diga tu replicas:).
+* Escala los anteriores a 0, pero no los elimina.
+
+### Ahora que cosas hicimos para que nuestro pod se cree y se ejecute
+
+Tuvimos varios errores de configuracion por lo cual resaltaremos los comandos mas importantes que usamos
+
+---
+
+### `kubectl delete pod -l app=pg-admin`
+
+Esto **elimina los Pods actuales** directamente, pero **no toca el Deployment ni el ReplicaSet**. ¿Qué pasa después?
+
+* El **ReplicaSet detecta** que ya no hay ningún Pod.
+* Entonces **vuelve a crear el Pod automáticamente** para cumplir con la cantidad deseada (por ejemplo, 1 réplica).
+* Este comando es útil si queremos **reiniciar** el contenedor (por ejemplo, después de cambiar una `Secret` o una `ConfigMap` montada).
+
+✅ **Es seguro para reiniciar**
+❌ **No elimina residuos ni versiones antiguas**
+
+---
+
+### 🔹 `kubectl delete replicaset.apps/<nombre-del-replicaset>`
+
+Esto **elimina un ReplicaSet viejo** (es decir, una versión anterior de tu Deployment), que normalmente tiene **0 Pods activos**.
+
+* No afecta el funcionamiento actual si eliminas los ReplicaSets **que ya están escalados a 0**.
+* Esto **libera recursos y limpia** el historial innecesario.
+* Solo hacerlo si estamos seguros de que **no necesitamos hacer rollback a esas versiones anteriores** del Deployment.
+
+✅ **Limpia versiones antiguas**
+❌ **No debe usarse sobre la versión actual (con Pods activos)**
+
+---
+
+### En resumen:
+
+| Comando                              | Qué hace                                            | Cuándo usarlo                |
+| ------------------------------------ | --------------------------------------------------- | ---------------------------- |
+| `kubectl delete pod -l app=pg-admin` | Elimina el Pod actual, pero el ReplicaSet lo recrea | Para reiniciar el contenedor |
+| `kubectl delete replicaset <nombre>` | Elimina un ReplicaSet viejo (sin Pods activos)      | Para limpiar historial viejo |
+
+Para eliminar todas esas replicas podemos hacer lo siguiente:
+
+```bash
+kubectl delete replicaset.apps/pg-admin-deployment-5956cb8997
+kubectl delete replicaset.apps/pg-admin-deployment-69b5d7dcc8
+kubectl delete replicaset.apps/pg-admin-deployment-89b4757fb
+kubectl delete replicaset.apps/pg-admin-deployment-cf946c858
+``` 
+
+o
+
+```bash
+kubectl delete replicaset -l app=pg-admin
+# y verificamos luego con get all para verificar que siga corriendo correctamente
+kubectl get all
+``` 
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl delete replicaset -l app=pg-admin
+replicaset.apps "pg-admin-deployment-5956cb8997" deleted
+replicaset.apps "pg-admin-deployment-69b5d7dcc8" deleted
+replicaset.apps "pg-admin-deployment-85799ffd77" deleted
+replicaset.apps "pg-admin-deployment-89b4757fb" deleted
+replicaset.apps "pg-admin-deployment-cf946c858" deleted
+```
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                       READY   STATUS    RESTARTS      AGE
+pod/pg-admin-deployment-85799ffd77-jd4z9   1/1     Running   0             3m35s
+pod/postgres-deployment-8685447-6r7sh      1/1     Running   2 (18h ago)   3d18h
+
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP        3d18h
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP   18h
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP       3d18h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/pg-admin-deployment   1/1     1            1           18h
+deployment.apps/postgres-deployment   1/1     1            1           3d18h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/pg-admin-deployment-85799ffd77   1         1         1       3m36s
+replicaset.apps/postgres-deployment-8685447      1         1         1       3d18h
+```
+
+> Nota: Si te preguntas que es ese **-l** basicamente seria un selector de tipo label selector que permite seleccionar recursos por etiquetas para aplicar la acción de eliminación a todos los pods que coincidan con esa etiqueta, en este caso los pods relacionados con la aplicación "pg-admin"
+
+***Listo***  ahora que lo tenemos corriendo si ingresamos a la url que tenemos en teoria publicado [http://localhost:30200/](http://localhost:30200/) no veremos nada.
+
+### Como lo podemos ver en nuestra maquina local?
+
+Dentro del cluster de kubernetes ya este contenedor esta corriendo y en teoria eso seria todo ya que estara expuesto ahi dentro pero para verlo en nuestra maquina haremos esto:
+
+```bash
+minikube service pg-admin-service 
+``` 
+
+Y automaticamente nos abrira el navegador con la url que tenemos publicada y en los logs de la consola veremos lo siguiente:
+
+```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> minikube service pg-admin-service
+|-----------|------------------|-------------|---------------------------|
+| NAMESPACE |       NAME       | TARGET PORT |            URL            |
+|-----------|------------------|-------------|---------------------------|
+| default   | pg-admin-service |          80 | http://192.168.49.2:30200 |
+|-----------|------------------|-------------|---------------------------|
+* Starting tunnel for service pg-admin-service.
+|-----------|------------------|-------------|------------------------|
+| NAMESPACE |       NAME       | TARGET PORT |          URL           |
+|-----------|------------------|-------------|------------------------|
+| default   | pg-admin-service |             | http://127.0.0.1:58547 |
+|-----------|------------------|-------------|------------------------|
+* Opening service default/pg-admin-service in default browser...
+! Porque estás usando controlador Docker en windows, la terminal debe abrirse para ejecutarlo.
+``` 
+
+Y para ingresar colocamos nuestras credenciales.
+
+```bash
+email: ignaccio7@gmail.com
+password: 123456
+``` 
+
+Si queremos ver que se configuro bien el pgadmin podemos hacer lo siguiente:
+
+```bash
+kubectl exec -it <nombre-del-pod> -- env | grep PGADMIN
+
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                       READY   STATUS    RESTARTS      AGE
+pod/pg-admin-deployment-85799ffd77-jd4z9   1/1     Running   0             100m
+pod/postgres-deployment-8685447-6r7sh      1/1     Running   2 (19h ago)   3d20h
+
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP        3d20h
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP   20h
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP       3d20h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/pg-admin-deployment   1/1     1            1           20h
+deployment.apps/postgres-deployment   1/1     1            1           3d20h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/pg-admin-deployment-85799ffd77   1         1         1       100m
+replicaset.apps/postgres-deployment-8685447      1         1         1       3d20h
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl exec -it pod/pg-admin-deployment-85799ffd77-jd4z9 -- env | grep PGADMIN
+PGADMIN_DEFAULT_EMAIL=ignaccio7@gmail.com
+PGADMIN_DEFAULT_PASSWORD=123456
+PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION=False
+``` 
+
+Y si en caso tuvieramos errores de credenciales que no acepta correctamente lo primero que podemos hacer es reiniciar el pod y probar nuevamente. (En caso de que no funcione ya es cosa de ir revisando el deployment el servicio los secretos los logs cosas asi)
+
+```bash
+kubectl delete pod -l app=pg-admin
+``` 
+
+### Muy importante. Fallamos en la configuracion del **postgres.yml**
+
+El archivo correcto es este:
+
+```bash
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: postgres-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: postgres # <- Etiquetas que nos ayudaran a identificar
+spec:
+  replicas: 1 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: postgres # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: postgres # <- etiquetas
+    spec:
+      containers:
+      - name: postgres # <- Nombre del  # <- Imagen que se usara
+        image: postgres:16.3-alpine3.20 # <- Imagen que se usara
+        ports:
+        - containerPort: 5432  # <- Puerto que se usara
+        env:
+        - name: POSTGRES_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_PASSWORD # <- Nombre de la variable en el secreto
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  selector:
+    app: postgres # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 5432 # <- Cualquier puerto que queremos comunicar 
+      targetPort: 5432 # <- Puerto del contenedor
+``` 
+
+Lo que cambiamos fue:
+```bash
+# ESTO
+selector:
+    app.kubernetes.io/name: postgres
+# POR ESTO
+selector:
+    app: postgres
+``` 
+
+Y ya podremos conectarnos desde pgadmin con el usuario postgres y la contraseña que tenemos en el secreto. Porque estaba fallando? pues fue el nombre del **selector** tenia que ser el mismo que nosotros definimos en el **label** del **deployment**.
+
+```bash
+1111111111111111111111111111111111
+11
+``` 
 
 
 ```bash
 
 ``` 
 
-```bash
-
-``` 
-
-```bash
-
-``` 
-
-```bash
-
-``` 
 
 ```bash
 
 ``` 
 
 
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
+
+
+```bash
+
+``` 
 
 
 
