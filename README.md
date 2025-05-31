@@ -3952,49 +3952,334 @@ selector:
 
 Y ya podremos conectarnos desde pgadmin con el usuario postgres y la contraseña que tenemos en el secreto. Porque estaba fallando? pues fue el nombre del **selector** tenia que ser el mismo que nosotros definimos en el **label** del **deployment**.
 
+## Desplegando nuestro Backend en el cluster
+
+Para desplegar un backend haremos uso de este backend que ya esta en [docker hub](https://hub.docker.com/r/klerith/k8s-teslo-backend/tags) y lo que haremos es subirlo a nuestro cluster de kubernetes. Para ello de igual manera nos crearemos un archivo **backend-secrets.yml** y un archivo **backend.yml** de la siguiente manera:
+
+**backend-secrets.yml**
 ```bash
-1111111111111111111111111111111111
-11
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secrets
+type: Opaque
+data:  
+  JWT_SECRET: c2VjcmV0UGFyYUs4SldU # $ echo -n secretParaK8JWT | base64
 ``` 
 
-
+**backend.yml***
 ```bash
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: backend-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: backend # <- Etiquetas que nos ayudaran a identificar
+spec:
+  replicas: 2 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: backend # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: backend # <- etiquetas
+    spec:
+      containers:
+      - name: backend # <- Nombre del  # <- Imagen que se usara
+        image: klerith/k8s-teslo-backend:1.1.0 # <- Imagen que se usara
+        ports:
+        - containerPort: 3000  # <- Puerto que se usara
+        env:
+        - name: APP_VERSION # <- Nombre de la variable de entorno
+          value: "1.1.0" # <- Valor de la variable de entorno
+        - name: PORT # <- Nombre de la variable de entorno
+          value: "3000" # <- Valor de la variable de entorno
+        - name: STAGE # <- Nombre de la variable de entorno
+          value: "prod" # <- Valor de la variable de entorno
+        - name: DB_NAME # <- Nombre de la variable de entorno
+          valueFrom: 
+            configMapKeyRef:
+              name: postgres-config # <- Aqui hacemos referencia al configmap que tenemos en el de postgres
+              key: DB_NAME # <- Aqui nos indicamos que la variable de entorno que queremos es DB_NAME
+        - name: DB_HOST # <- Nombre de la variable de entorno
+          valueFrom: 
+            configMapKeyRef:
+              name: postgres-config # <- Aqui hacemos referencia al configmap que tenemos en el de postgres
+              key: DB_HOST # <- Aqui nos indicamos que la variable de entorno que queremos es DB_NAME
+        - name: DB_PORT # <- Nombre de la variable de entorno
+          valueFrom: 
+            configMapKeyRef:
+              name: postgres-config # <- Aqui hacemos referencia al configmap que tenemos en el de postgres
+              key: DB_PORT # <- Aqui nos indicamos que la variable de entorno que queremos es DB_NAME
 
+        - name: DB_USERNAME # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_USER # <- Nombre de la variable en el secreto
+        - name: DB_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_PASSWORD # <- Nombre de la variable en el secreto
+
+        - name: JWT_SECRET # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: backend-secrets # <- Nombre del secreto
+              key: JWT_SECRET # <- Nombre de la variable en el secreto
+
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  type: NodePort # <- Este nodeport nos servira para la comunicacion externa para exponer el pgadmin y verlo en nuesta maquina
+  selector:
+    app: backend # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 3000 # <- Cualquier puerto que queremos comunicar dentro del cluster
+      targetPort: 3000 # <- Puerto del contenedor el que expone la imagen
+      nodePort: 30300 # Puerto que expondra a nuestro equipo el que mapearemos a nuestra maquina
 ``` 
 
+Y ya luego de que hagamos correr el comando veremos que el servicio esta activo:
 
 ```bash
-
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\backend-secrets.yml
+secret/backend-secrets created
 ``` 
 
-
 ```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl apply -f .\backend.yml
+deployment.apps/backend-deployment unchanged
+service/backend-service created
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                       READY   STATUS    RESTARTS       AGE
+pod/backend-deployment-6987f5dd8d-88bdw    1/1     Running   0              7m20s
+pod/backend-deployment-6987f5dd8d-n4v7t    1/1     Running   0              7m21s
+pod/pg-admin-deployment-85799ffd77-tvhrj   1/1     Running   1 (3d1h ago)   3d2h
+pod/postgres-deployment-8685447-6r7sh      1/1     Running   3 (3d1h ago)   6d22h
 
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+service/backend-service    NodePort    10.111.111.241   <none>        3000:30300/TCP   2m58s
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP          6d22h
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP     3d22h
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP         6d22h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend-deployment    2/2     2            2           9m23s
+deployment.apps/pg-admin-deployment   1/1     1            1           3d22h
+deployment.apps/postgres-deployment   1/1     1            1           6d22h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/backend-deployment-6987f5dd8d    2         2         2       7m21s
+replicaset.apps/backend-deployment-7d69877488    0         0         0       9m23s
+replicaset.apps/backend-deployment-85fc6d57dd    0         0         0       8m49s
+replicaset.apps/pg-admin-deployment-85799ffd77   1         1         1       3d4h
+replicaset.apps/postgres-deployment-8685447      1         1         1       6d22h
 ``` 
 
+Y ya nuevamente si quisieramos ver las descripciones de nuestros pods que se desplegaron en el cluster para ver las configuraciones de las variables de entorno si el contenedor esta o no inicializado bueno mas cosas con este comando:
 
 ```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl describe pod/backend-deployment-6987f5dd8d-n4v7t
 
+Name:             backend-deployment-6987f5dd8d-n4v7t
+Namespace:        default
+Priority:         0
+Service Account:  default
+Node:             minikube/192.168.49.2
+Start Time:       Wed, 28 May 2025 21:20:20 -0400
+Labels:           app=backend
+                  pod-template-hash=6987f5dd8d
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.30
+IPs:
+  IP:           10.244.0.30
+Controlled By:  ReplicaSet/backend-deployment-6987f5dd8d
+Containers:
+  backend:
+    Container ID:   docker://3b49348b133a5aed11ce9f916f0d8475bc84d2d3fe79b89d4e58b607894fc614
+    Image:          klerith/k8s-teslo-backend:1.1.0
+    Image ID:       docker-pullable://klerith/k8s-teslo-backend@sha256:f86b2e8affa96aa7d2cd21a42fc1f8e084bb389f02307f06480eddb98de0a844
+    Port:           3000/TCP
+    Host Port:      0/TCP
+    State:          Running
+      Started:      Wed, 28 May 2025 21:20:20 -0400
+    Ready:          True
+    Restart Count:  0
+    Environment:
+      APP_VERSION:  1.1.0
+      PORT:         3000
+      STAGE:        prod
+      DB_NAME:      <set to the key 'DB_NAME' of config map 'postgres-config'>   Optional: false
+      DB_HOST:      <set to the key 'DB_HOST' of config map 'postgres-config'>   Optional: false
+      DB_PORT:      <set to the key 'DB_PORT' of config map 'postgres-config'>   Optional: false
+      DB_USERNAME:  <set to the key 'DB_USER' in secret 'postgres-secrets'>      Optional: false
+      DB_PASSWORD:  <set to the key 'DB_PASSWORD' in secret 'postgres-secrets'>  Optional: false
+      JWT_SECRET:   <set to the key 'JWT_SECRET' in secret 'backend-secrets'>    Optional: false
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-4rvkx (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True
+  Initialized                 True
+  Ready                       True
+  ContainersReady             True
+  PodScheduled                True
+Volumes:
+  kube-api-access-4rvkx:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type    Reason     Age   From               Message
+  ----    ------     ----  ----               -------
+  Normal  Scheduled  11m   default-scheduler  Successfully assigned default/backend-deployment-6987f5dd8d-n4v7t to minikube
+  Normal  Pulled     11m   kubelet            Container image "klerith/k8s-teslo-backend:1.1.0" already present on machine
+  Normal  Created    11m   kubelet            Created container: backend
+  Normal  Started    11m   kubelet            Started container backend
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo>
 ``` 
 
+Y ahora para ver los logs de nuestro pod le podemos dar como flag `-f` para darle seguimiento o no:
 
 ```bash
-
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl logs pod/backend-deployment-6987f5dd8d-n4v7t
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [NestFactory] Starting Nest application...
+APP_VERSION: 1.1.0
+STAGE: prod
+DB_PASSWORD: P@ss123456
+DB_NAME: postgres
+DB_HOST: postgres-service
+DB_PORT: 5432
+DB_USERNAME: postgres
+PORT: 3000
+HOST_API: undefined
+JWT_SECRET: secretParaK8JWT
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] AppModule dependencies initialized +58ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] TypeOrmModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] PassportModule dependencies initialized +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] CommonModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] ConfigHostModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] ServeStaticModule dependencies initialized +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] ConfigModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] ConfigModule dependencies initialized +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] FilesModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] JwtModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] TypeOrmCoreModule dependencies initialized +133ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] TypeOrmModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] TypeOrmModule dependencies initialized +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] MessagesWsModule dependencies initialized +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] SeedModule dependencies initialized +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] ProductsModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [InstanceLoader] AuthModule dependencies initialized +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [WebSocketsController] MessagesWsGateway subscribed to the "message-from-client" message +38ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RoutesResolver] ProductsController {/api/products}: +2ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/products, POST} route +2ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/products, GET} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/products/:term, GET} route +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/products/:id, PATCH} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/products/:id, DELETE} route +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RoutesResolver] AuthController {/api/auth}: +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/auth/register, POST} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/auth/login, POST} route +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/auth/check-status, GET} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/auth/private, GET} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/auth/private2, GET} route +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/auth/private3, GET} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RoutesResolver] SeedController {/api/seed}: +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/seed, GET} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RoutesResolver] FilesController {/api/files}: +0ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/files/product/:imageName, GET} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [RouterExplorer] Mapped {/api/files/product, POST} route +1ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [NestApplication] Nest application successfully started +2ms
+[Nest] 1  - 05/29/2025, 1:20:22 AM     LOG [Bootstrap] App corriendo en puerto: 3000!!!! :)
 ``` 
 
+### Posterior a eso ya podemos ver nuestro backend si exponemos nuestro servicio en nuestro equipo
 
 ```bash
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> kubectl get all
+NAME                                       READY   STATUS    RESTARTS      AGE
+pod/backend-deployment-6987f5dd8d-88bdw    1/1     Running   1 (44h ago)   46h
+pod/backend-deployment-6987f5dd8d-n4v7t    1/1     Running   1 (44h ago)   46h
+pod/pg-admin-deployment-85799ffd77-tvhrj   1/1     Running   2 (44h ago)   5d
+pod/postgres-deployment-8685447-6r7sh      1/1     Running   4 (44h ago)   8d
 
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+service/backend-service    NodePort    10.111.111.241   <none>        3000:30300/TCP   46h
+service/kubernetes         ClusterIP   10.96.0.1        <none>        443/TCP          8d
+service/pg-admin-service   NodePort    10.110.160.206   <none>        80:30200/TCP     5d20h
+service/postgres-service   ClusterIP   10.105.70.102    <none>        5432/TCP         8d
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend-deployment    2/2     2            2           46h
+deployment.apps/pg-admin-deployment   1/1     1            1           5d20h
+deployment.apps/postgres-deployment   1/1     1            1           8d
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/backend-deployment-6987f5dd8d    2         2         2       46h
+replicaset.apps/backend-deployment-7d69877488    0         0         0       46h
+replicaset.apps/backend-deployment-85fc6d57dd    0         0         0       46h
+replicaset.apps/pg-admin-deployment-85799ffd77   1         1         1       5d2h
+replicaset.apps/postgres-deployment-8685447      1         1         1       8d
 ``` 
 
-
 ```bash
-
+PS C:\Users\Pc-s\Desktop\EQUIPO\NAXO\PRACTICAS\DockerApuntes\clases\k8s-teslo> minikube service backend-service
+|-----------|-----------------|-------------|---------------------------|
+| NAMESPACE |      NAME       | TARGET PORT |            URL            |
+|-----------|-----------------|-------------|---------------------------|
+| default   | backend-service |        3000 | http://192.168.49.2:30300 |
+|-----------|-----------------|-------------|---------------------------|
+* Starting tunnel for service backend-service.
+|-----------|-----------------|-------------|------------------------|
+| NAMESPACE |      NAME       | TARGET PORT |          URL           |
+|-----------|-----------------|-------------|------------------------|
+| default   | backend-service |             | http://127.0.0.1:60196 |
+|-----------|-----------------|-------------|------------------------|
+* Opening service default/backend-service in default browser...
+! Porque estás usando controlador Docker en windows, la terminal debe abrirse para ejecutarlo.
+* Stopped tunnel for service backend-service.
 ``` 
 
+Y si ejecutamos el seed de nuestro backend en la siguiente [pagina](http://127.0.0.1:60196/api#/) y luego listamos los *productos* entonces veremos que todo ya esta conectado tanto el backend como la base de datos. 
+
+> Como recomendacion puedes ejecutar tambien el service de pgadmin para ver los datos de la base de datos
+
+
+
+### Comandos importantes aqui
+
+Que pasa si cambiamos los archivos de configuracion en nuestros deployments entonces deberiamos reiniciar los pods para que se apliquen para lo cual.
+
+Si queremos reiniciar todos los pods lo que debemos hacer es:
+```bash
+kubectl rollout restart deployment
+``` 
+
+Si queremos uino en particular
+```bash
+kubectl rollout restart <nombre_del_pod>
+``` 
+
+Para recuperar todo el espacio en disco de nuestro cluster hacemos lo siguiente:
 
 ```bash
-
+minikube delete --all
 ``` 
 
 

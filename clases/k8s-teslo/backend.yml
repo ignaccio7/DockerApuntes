@@ -1,0 +1,76 @@
+apiVersion: apps/v1 # <- Nombre de la version
+kind: Deployment
+metadata: 
+  name: backend-deployment # <- Nombre con el cual lo vamos a identificar
+  labels:
+    app: backend # <- Etiquetas que nos ayudaran a identificar
+spec:
+  replicas: 2 # <- Cuantas copias de ese pod
+  selector:
+    matchLabels:
+      app: backend # <- Para hacer las conexiones entre si
+  template:
+    metadata:
+      labels:
+        app: backend # <- etiquetas
+    spec:
+      containers:
+      - name: backend # <- Nombre del  # <- Imagen que se usara
+        image: klerith/k8s-teslo-backend:1.1.0 # <- Imagen que se usara
+        ports:
+        - containerPort: 3000  # <- Puerto que se usara
+        env:
+        - name: APP_VERSION # <- Nombre de la variable de entorno
+          value: "1.1.0" # <- Valor de la variable de entorno
+        - name: PORT # <- Nombre de la variable de entorno
+          value: "3000" # <- Valor de la variable de entorno
+        - name: STAGE # <- Nombre de la variable de entorno
+          value: "prod" # <- Valor de la variable de entorno
+        - name: DB_NAME # <- Nombre de la variable de entorno
+          valueFrom: 
+            configMapKeyRef:
+              name: postgres-config # <- Aqui hacemos referencia al configmap que tenemos en el de postgres
+              key: DB_NAME # <- Aqui nos indicamos que la variable de entorno que queremos es DB_NAME
+        - name: DB_HOST # <- Nombre de la variable de entorno
+          valueFrom: 
+            configMapKeyRef:
+              name: postgres-config # <- Aqui hacemos referencia al configmap que tenemos en el de postgres
+              key: DB_HOST # <- Aqui nos indicamos que la variable de entorno que queremos es DB_NAME
+        - name: DB_PORT # <- Nombre de la variable de entorno
+          valueFrom: 
+            configMapKeyRef:
+              name: postgres-config # <- Aqui hacemos referencia al configmap que tenemos en el de postgres
+              key: DB_PORT # <- Aqui nos indicamos que la variable de entorno que queremos es DB_NAME
+
+        - name: DB_USERNAME # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_USER # <- Nombre de la variable en el secreto
+        - name: DB_PASSWORD # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: postgres-secrets # <- Nombre del secreto
+              key: DB_PASSWORD # <- Nombre de la variable en el secreto
+
+        - name: JWT_SECRET # <- Nombre de la variable de entorno
+          valueFrom:
+            secretKeyRef: # <- Tipo de referencia
+              name: backend-secrets # <- Nombre del secreto
+              key: JWT_SECRET # <- Nombre de la variable en el secreto
+
+---
+# aqui crearemos el servicio
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service # <- Nombre del servicio con el cual se comunicara al cluster
+spec:
+  type: NodePort # <- Este nodeport nos servira para la comunicacion externa para exponer el pgadmin y verlo en nuesta maquina
+  selector:
+    app: backend # <- Este seria un selector que nos ayudara a identificar al pod que queremos comunicar
+  ports: # <- Puertos que queremos comunicar
+    - protocol: TCP 
+      port: 3000 # <- Cualquier puerto que queremos comunicar dentro del cluster
+      targetPort: 3000 # <- Puerto del contenedor el que expone la imagen
+      nodePort: 30300 # Puerto que expondra a nuestro equipo el que mapearemos a nuestra maquina
